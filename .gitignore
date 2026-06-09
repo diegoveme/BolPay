@@ -64,3 +64,7 @@ npm-debug.log*
 TODO.md
 done_todo.md
 skills-lock.json
+
+# MCP config holds live API keys (e.g. Stitch X-Goog-Api-Key) in plaintext.
+.mcp.json
+mcp.json
