@@ -1,0 +1,352 @@
+// BolPay relational data model (off-chain state).
+// Mirrors docs/data-model.md. On-chain references (escrow id, stellar hash) are
+// stored alongside the entities they relate to. Enum values match @bolpay/shared.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Enumerations (docs/data-model.md §4)
+// ---------------------------------------------------------------------------
+
+enum UserRole {
+  company
+  freelancer
+  fixed_employee
+  administrator
+}
+
+enum ContractStatus {
+  draft
+  accepted
+  active
+  completed
+}
+
+enum MilestoneStatus {
+  pending
+  submitted
+  in_review
+  approved
+  released
+  disputed
+}
+
+enum EscrowType {
+  contract
+  payroll
+}
+
+enum EscrowStatus {
+  created
+  funded
+  releasing
+  released
+  closed
+}
+
+enum DisputeStatus {
+  open
+  under_review
+  resolved
+  escalated
+  closed
+}
+
+enum PayrollFrequency {
+  weekly
+  biweekly
+  monthly
+}
+
+enum PayrollStatus {
+  draft
+  funded
+  active
+  paused
+  completed
+}
+
+enum PayrollExecutionStatus {
+  pending
+  succeeded
+  failed
+  partial
+}
+
+enum TransactionOperation {
+  fund
+  release
+  refund
+  payroll_distribution
+}
+
+// ---------------------------------------------------------------------------
+// Identity
+// ---------------------------------------------------------------------------
+
+model User {
+  id           String   @id @default(uuid()) @db.Uuid
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  role         UserRole
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  companyProfile    CompanyProfile?
+  freelancerProfile FreelancerProfile?
+  wallets           Wallet[]
+  notifications     Notification[]
+  activityLogs      ActivityLog[]
+  disputesOpened    Dispute[]          @relation("DisputeOpenedBy")
+  evidenceSubmitted DisputeEvidence[]  @relation("EvidenceSubmittedBy")
+
+  @@map("users")
+}
+
+model Wallet {
+  id             String  @id @default(uuid()) @db.Uuid
+  userId         String  @map("user_id") @db.Uuid
+  stellarAddress String  @map("stellar_address")
+  isPrimary      Boolean @default(false) @map("is_primary")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("wallets")
+}
+
+model CompanyProfile {
+  id          String  @id @default(uuid()) @db.Uuid
+  userId      String  @unique @map("user_id") @db.Uuid
+  name        String
+  description String?
+
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  contracts Contract[]
+  payrolls  Payroll[]
+
+  @@map("company_profiles")
+}
+
+model FreelancerProfile {
+  id          String  @id @default(uuid()) @db.Uuid
+  userId      String  @unique @map("user_id") @db.Uuid
+  displayName String  @map("display_name")
+  headline    String?
+
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  contracts Contract[]
+
+  @@map("freelancer_profiles")
+}
+
+// ---------------------------------------------------------------------------
+// Contracts & milestones
+// ---------------------------------------------------------------------------
+
+model Contract {
+  id           String         @id @default(uuid()) @db.Uuid
+  companyId    String         @map("company_id") @db.Uuid
+  freelancerId String         @map("freelancer_id") @db.Uuid
+  title        String
+  description  String?
+  totalAmount  Decimal        @map("total_amount") @db.Decimal(20, 7)
+  status       ContractStatus @default(draft)
+  escrowId     String?        @unique @map("escrow_id") @db.Uuid
+  createdAt    DateTime       @default(now()) @map("created_at")
+
+  company    CompanyProfile    @relation(fields: [companyId], references: [id])
+  freelancer FreelancerProfile @relation(fields: [freelancerId], references: [id])
+  escrow     Escrow?           @relation(fields: [escrowId], references: [id])
+  milestones Milestone[]
+
+  @@index([companyId])
+  @@index([freelancerId])
+  @@map("contracts")
+}
+
+model Milestone {
+  id         String          @id @default(uuid()) @db.Uuid
+  contractId String          @map("contract_id") @db.Uuid
+  title      String
+  amount     Decimal         @db.Decimal(20, 7)
+  deadline   DateTime?       @db.Date
+  status     MilestoneStatus @default(pending)
+
+  contract     Contract      @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  deliverables Deliverable[]
+  disputes     Dispute[]
+  transactions Transaction[]
+
+  @@index([contractId])
+  @@map("milestones")
+}
+
+model Deliverable {
+  id          String   @id @default(uuid()) @db.Uuid
+  milestoneId String   @map("milestone_id") @db.Uuid
+  fileUrl     String?  @map("file_url")
+  linkUrl     String?  @map("link_url")
+  version     Int      @default(1)
+  submittedAt DateTime @default(now()) @map("submitted_at")
+
+  milestone Milestone @relation(fields: [milestoneId], references: [id], onDelete: Cascade)
+
+  @@index([milestoneId])
+  @@map("deliverables")
+}
+
+// ---------------------------------------------------------------------------
+// Escrow (Trustless Work reference) — funds a contract or a payroll
+// ---------------------------------------------------------------------------
+
+model Escrow {
+  id              String       @id @default(uuid()) @db.Uuid
+  trustlessWorkId String?      @map("trustless_work_id")
+  type            EscrowType
+  status          EscrowStatus @default(created)
+  fundedAmount    Decimal?     @map("funded_amount") @db.Decimal(20, 7)
+
+  contract Contract?
+  payroll  Payroll?
+
+  @@map("escrows")
+}
+
+// ---------------------------------------------------------------------------
+// Disputes
+// ---------------------------------------------------------------------------
+
+model Dispute {
+  id          String        @id @default(uuid()) @db.Uuid
+  milestoneId String        @map("milestone_id") @db.Uuid
+  openedById  String        @map("opened_by") @db.Uuid
+  status      DisputeStatus @default(open)
+  resolution  String?
+  openedAt    DateTime      @default(now()) @map("opened_at")
+
+  milestone Milestone         @relation(fields: [milestoneId], references: [id], onDelete: Cascade)
+  openedBy  User              @relation("DisputeOpenedBy", fields: [openedById], references: [id])
+  evidence  DisputeEvidence[]
+
+  @@index([milestoneId])
+  @@map("disputes")
+}
+
+model DisputeEvidence {
+  id            String  @id @default(uuid()) @db.Uuid
+  disputeId     String  @map("dispute_id") @db.Uuid
+  submittedById String  @map("submitted_by") @db.Uuid
+  fileUrl       String? @map("file_url")
+  comment       String?
+
+  dispute     Dispute @relation(fields: [disputeId], references: [id], onDelete: Cascade)
+  submittedBy User    @relation("EvidenceSubmittedBy", fields: [submittedById], references: [id])
+
+  @@index([disputeId])
+  @@map("dispute_evidence")
+}
+
+// ---------------------------------------------------------------------------
+// Payroll
+// ---------------------------------------------------------------------------
+
+model Payroll {
+  id        String           @id @default(uuid()) @db.Uuid
+  companyId String           @map("company_id") @db.Uuid
+  frequency PayrollFrequency
+  status    PayrollStatus    @default(draft)
+  nextRun   DateTime?        @map("next_run") @db.Date
+  escrowId  String?          @unique @map("escrow_id") @db.Uuid
+
+  company    CompanyProfile     @relation(fields: [companyId], references: [id])
+  escrow     Escrow?            @relation(fields: [escrowId], references: [id])
+  items      PayrollItem[]
+  executions PayrollExecution[]
+
+  @@index([companyId])
+  @@map("payrolls")
+}
+
+model PayrollItem {
+  id               String  @id @default(uuid()) @db.Uuid
+  payrollId        String  @map("payroll_id") @db.Uuid
+  recipientAddress String  @map("recipient_address")
+  amount           Decimal @db.Decimal(20, 7)
+
+  payroll      Payroll       @relation(fields: [payrollId], references: [id], onDelete: Cascade)
+  transactions Transaction[]
+
+  @@index([payrollId])
+  @@map("payroll_items")
+}
+
+model PayrollExecution {
+  id         String                 @id @default(uuid()) @db.Uuid
+  payrollId  String                 @map("payroll_id") @db.Uuid
+  executedAt DateTime               @default(now()) @map("executed_at")
+  status     PayrollExecutionStatus @default(pending)
+
+  payroll Payroll @relation(fields: [payrollId], references: [id], onDelete: Cascade)
+
+  @@index([payrollId])
+  @@map("payroll_executions")
+}
+
+// ---------------------------------------------------------------------------
+// On-chain settlement audit trail
+// ---------------------------------------------------------------------------
+
+model Transaction {
+  id            String               @id @default(uuid()) @db.Uuid
+  stellarHash   String?              @unique @map("stellar_hash")
+  operation     TransactionOperation
+  amount        Decimal              @db.Decimal(20, 7)
+  confirmedAt   DateTime?            @map("confirmed_at")
+  milestoneId   String?              @map("milestone_id") @db.Uuid
+  payrollItemId String?              @map("payroll_item_id") @db.Uuid
+
+  milestone   Milestone?   @relation(fields: [milestoneId], references: [id])
+  payrollItem PayrollItem? @relation(fields: [payrollItemId], references: [id])
+
+  @@index([milestoneId])
+  @@index([payrollItemId])
+  @@map("transactions")
+}
+
+// ---------------------------------------------------------------------------
+// Cross-cutting
+// ---------------------------------------------------------------------------
+
+model Notification {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  type      String
+  message   String
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("notifications")
+}
+
+model ActivityLog {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  event     String
+  metadata  Json?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("activity_logs")
+}
