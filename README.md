@@ -95,10 +95,11 @@ non-functional specification.
 
 | Layer | Technology |
 |---|---|
-| **Web Frontend** | React |
+| **Web Frontend** | React (Vite) + TanStack Query |
 | **Mobile Application** | Flutter |
-| **Backend** | NestJS (Node.js + TypeScript) |
-| **Database** | PostgreSQL |
+| **Backend** | NestJS (Node.js + TypeScript) + Prisma |
+| **Database** | PostgreSQL (Supabase) |
+| **Auth & Wallets** | [Pollar](https://pollar.xyz) — social login + custodial Stellar wallets |
 | **Blockchain** | Stellar + Soroban |
 | **Escrow** | Trustless Work (Escrow as a Service) |
 | **Payments** | USDC (Circle) on Stellar |
@@ -158,11 +159,44 @@ All project documentation lives in the [`docs/`](docs/) directory.
 - Formal staff training.
 - Production environment (development and testing only).
 
+## Getting Started
+
+```bash
+bun install
+
+# Environment (see .env.example for every variable)
+cp .env.example apps/backend/.env   # DB, JWT, Trustless Work, ESCROW_MODE
+cp .env.example apps/web/.env       # VITE_API_URL + VITE_POLLAR_PUBLISHABLE_KEY
+
+# Database (Supabase Postgres)
+cd apps/backend && bunx prisma migrate deploy && bunx prisma generate
+
+# Run
+bun run --cwd apps/backend dev      # API on http://localhost:3000/api (Swagger: /api/docs)
+bun run --cwd apps/web dev          # Web on http://localhost:5173
+cd apps/mobile && flutter run --dart-define API_URL=http://10.0.2.2:3000/api
+```
+
+**Authentication flow:** the web client signs in with Pollar (Google / GitHub /
+email OTP) using the publishable key; Pollar creates a custodial Stellar wallet
+for the user. The client then exchanges that identity for a BolPay JWT via
+`POST /auth/login` (role selected on first login or taken from an email
+invitation).
+
+**Escrow modes:** `ESCROW_MODE=simulated` (default) keeps the full product flow
+working without touching the chain; `ESCROW_MODE=trustless_work` performs real
+multi-release escrows on Stellar testnet (requires `TRUSTLESS_WORK_API_KEY` and
+a funded `STELLAR_PLATFORM_SECRET` testnet account that signs the escrow XDRs).
+Milestone receivers are the freelancers' Pollar wallets, so released funds land
+directly in their accounts.
+
 ## Status
 
-Pre-development. Planning deliverables and documentation are in progress.
-Application scaffolding and implementation will follow. See
-[docs/roadmap.md](docs/roadmap.md) for the current phase and timeline.
+Core platform implemented across the three apps: Pollar authentication, contract
+lifecycle with automatic escrow funding, milestone deliverables with on-chain
+release on approval, disputes (mutual resolution, escalation, on-chain split),
+scheduled on-chain payroll, real-time notifications (SSE) and activity logs.
+See [docs/roadmap.md](docs/roadmap.md) for the timeline.
 
 ## License
 
