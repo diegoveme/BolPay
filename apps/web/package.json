@@ -12,6 +12,8 @@
   },
   "dependencies": {
     "@bolpay/shared": "workspace:*",
+    "@pollar/core": "^0.8.0",
+    "@pollar/react": "^0.8.0",
     "@tanstack/react-query": "^5.62.7",
     "axios": "^1.7.9",
     "react": "^19.2.6",
