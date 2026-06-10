@@ -24,6 +24,17 @@ export class PollarService {
     this.baseUrl =
       config.get<string>('pollar.apiUrl') ?? 'https://api.pollar.xyz';
     this.secretKey = config.get<string>('pollar.secretKey') ?? '';
+
+    // Fail at boot, not at login time: production must never run with
+    // server-side wallet verification disabled.
+    if (config.get<string>('nodeEnv') === 'production' && !this.secretKey) {
+      throw new Error('POLLAR_SECRET_KEY is required in production');
+    }
+    if (!this.secretKey) {
+      this.logger.warn(
+        'POLLAR_SECRET_KEY not set — wallet ownership verification is DISABLED (development only)',
+      );
+    }
   }
 
   get isConfigured(): boolean {
@@ -45,16 +56,24 @@ export class PollarService {
 
   /**
    * Verify that a Pollar wallet id belongs to the claimed Stellar address.
-   * Returns true when verification passes or cannot be performed (no secret
-   * key / wallet id), false on a positive mismatch.
+   *
+   * Fails CLOSED whenever the secret key is configured: a missing wallet id,
+   * an unreachable Pollar server or an address mismatch all reject the login.
+   * Only when the secret key is absent (local development — production boots
+   * refuse to start without it) is verification skipped.
+   *
+   * Known limitation, documented on purpose: Pollar's public API does not yet
+   * expose a backend-verifiable identity token (ID token + JWKS), so the
+   * strongest available binding is wallet-id ↔ address via the secret key.
    */
   async verifyWallet(
     pollarWalletId: string | undefined,
     stellarAddress: string,
   ): Promise<boolean> {
-    if (!this.isConfigured || !pollarWalletId) return true;
+    if (!this.isConfigured) return true; // dev only — see boot check
+    if (!pollarWalletId) return false;
     const wallet = await this.getWallet(pollarWalletId);
-    if (!wallet) return true; // Pollar unavailable — do not block login.
+    if (!wallet) return false;
     return wallet.address === stellarAddress;
   }
 

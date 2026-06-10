@@ -36,6 +36,11 @@ export class AuthService {
   async login(dto: LoginDto) {
     const email = dto.email.toLowerCase();
 
+    // Fail-closed wallet ownership check whenever the secret key is present
+    // (production refuses to boot without it — see PollarService).
+    if (this.pollar.isConfigured && !dto.pollarWalletId) {
+      throw new UnauthorizedException('pollarWalletId is required');
+    }
     const verified = await this.pollar.verifyWallet(
       dto.pollarWalletId,
       dto.stellarAddress,
@@ -103,7 +108,13 @@ export class AuthService {
     return user;
   }
 
-  /** Keep the Pollar wallet link up to date on subsequent logins. */
+  /**
+   * Keep the Pollar wallet link up to date on subsequent logins.
+   *
+   * Rebinding an EXISTING account to a different wallet is only allowed when
+   * the new (walletId, address) pair was verified against Pollar — otherwise
+   * anyone who knows a victim's email could hijack their payout address.
+   */
   private async syncWallet(
     user: User & { wallets: { stellarAddress: string }[] },
     dto: LoginDto,
@@ -117,6 +128,12 @@ export class AuthService {
         where: { id: user.id },
         include: USER_INCLUDE,
       });
+    }
+
+    if (user.stellarAddress && !this.pollar.isConfigured) {
+      throw new ForbiddenException(
+        'Wallet rebinding requires server-side Pollar verification (contact an administrator)',
+      );
     }
 
     const updated = await this.prisma.user.update({

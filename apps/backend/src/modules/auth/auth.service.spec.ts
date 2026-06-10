@@ -22,7 +22,10 @@ describe('AuthService', () => {
     invitation: { findUnique: jest.fn(), update: jest.fn() },
   };
   const jwt = { signAsync: jest.fn().mockResolvedValue('signed.jwt') };
-  const pollar = { verifyWallet: jest.fn().mockResolvedValue(true) };
+  const pollar = {
+    verifyWallet: jest.fn().mockResolvedValue(true),
+    isConfigured: false,
+  };
   const activityLogs = { record: jest.fn() };
 
   const baseDto: LoginDto = {
@@ -34,6 +37,7 @@ describe('AuthService', () => {
   beforeEach(async () => {
     jest.clearAllMocks();
     pollar.verifyWallet.mockResolvedValue(true);
+    pollar.isConfigured = false;
     jwt.signAsync.mockResolvedValue('signed.jwt');
 
     const moduleRef = await Test.createTestingModule({
@@ -127,5 +131,29 @@ describe('AuthService', () => {
     await expect(
       service.login({ ...baseDto, pollarWalletId: 'wal_x' }),
     ).rejects.toThrow('Pollar wallet does not match');
+  });
+
+  it('requires pollarWalletId when server-side verification is configured', async () => {
+    pollar.isConfigured = true;
+    await expect(service.login(baseDto)).rejects.toThrow(
+      'pollarWalletId is required',
+    );
+    expect(pollar.verifyWallet).not.toHaveBeenCalled();
+  });
+
+  it('blocks rebinding an existing account to a new wallet without Pollar verification', async () => {
+    prisma.user.findUnique.mockResolvedValue({
+      id: 'u1',
+      email: baseDto.email,
+      role: 'freelancer',
+      stellarAddress: 'G' + 'Z'.repeat(55), // different wallet already bound
+      pollarWalletId: 'wal_old',
+      wallets: [],
+    });
+
+    await expect(service.login(baseDto)).rejects.toThrow(
+      'Wallet rebinding requires server-side Pollar verification',
+    );
+    expect(prisma.user.update).not.toHaveBeenCalled();
   });
 });
