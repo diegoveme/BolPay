@@ -1,9 +1,28 @@
-import { Controller } from '@nestjs/common';
+import { Controller, Get, Param, ParseUUIDPipe } from '@nestjs/common';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { Roles } from '../../common/decorators/roles.decorator';
+import type { AuthUser } from '../../common/types/auth';
 import { EscrowService } from './escrow.service';
 
-@Controller('escrow')
+@ApiTags('escrows')
+@ApiBearerAuth()
+@Controller('escrows')
 export class EscrowController {
   constructor(private readonly escrowService: EscrowService) {}
 
-  // TODO: define routes for escrow
+  /** Platform-wide escrow monitor (administrators). */
+  @Get()
+  @Roles('administrator')
+  listAll() {
+    return this.escrowService.listAll();
+  }
+
+  @Get(':id')
+  findById(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.escrowService.findById(id, user);
+  }
 }

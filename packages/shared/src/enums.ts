@@ -11,11 +11,34 @@ export const UserRole = {
 } as const;
 export type UserRole = (typeof UserRole)[keyof typeof UserRole];
 
+/**
+ * Identity provider the user authenticated with. Pollar handles the actual
+ * OAuth / OTP flow client-side; the backend only records which one was used.
+ */
+export const AuthProvider = {
+  Google: 'google',
+  Github: 'github',
+  Discord: 'discord',
+  Email: 'email',
+  Wallet: 'wallet',
+} as const;
+export type AuthProvider = (typeof AuthProvider)[keyof typeof AuthProvider];
+
 export const ContractStatus = {
+  /** Editable by the company; not visible to the freelancer yet. */
   Draft: 'draft',
+  /** Sent to the freelancer, awaiting their decision. */
+  PendingAcceptance: 'pending_acceptance',
+  /** Freelancer asked for modifications; company may edit and re-send. */
+  ChangesRequested: 'changes_requested',
+  /** Freelancer accepted; escrow is being created/funded. */
   Accepted: 'accepted',
+  /** Escrow funded; work in progress. */
   Active: 'active',
+  /** Every milestone released. */
   Completed: 'completed',
+  /** Freelancer declined the contract. */
+  Rejected: 'rejected',
 } as const;
 export type ContractStatus = (typeof ContractStatus)[keyof typeof ContractStatus];
 
@@ -29,6 +52,13 @@ export const MilestoneStatus = {
 } as const;
 export type MilestoneStatus = (typeof MilestoneStatus)[keyof typeof MilestoneStatus];
 
+export const DeliverableStatus = {
+  Submitted: 'submitted',
+  ChangesRequested: 'changes_requested',
+  Approved: 'approved',
+} as const;
+export type DeliverableStatus = (typeof DeliverableStatus)[keyof typeof DeliverableStatus];
+
 export const EscrowType = {
   Contract: 'contract',
   Payroll: 'payroll',
@@ -40,6 +70,7 @@ export const EscrowStatus = {
   Funded: 'funded',
   Releasing: 'releasing',
   Released: 'released',
+  Disputed: 'disputed',
   Closed: 'closed',
 } as const;
 export type EscrowStatus = (typeof EscrowStatus)[keyof typeof EscrowStatus];
@@ -47,11 +78,27 @@ export type EscrowStatus = (typeof EscrowStatus)[keyof typeof EscrowStatus];
 export const DisputeStatus = {
   Open: 'open',
   UnderReview: 'under_review',
-  Resolved: 'resolved',
   Escalated: 'escalated',
+  Resolved: 'resolved',
   Closed: 'closed',
 } as const;
 export type DisputeStatus = (typeof DisputeStatus)[keyof typeof DisputeStatus];
+
+/** How a resolved dispute splits the milestone funds. */
+export const DisputeOutcome = {
+  ReleaseToFreelancer: 'release_to_freelancer',
+  RefundToCompany: 'refund_to_company',
+  Split: 'split',
+} as const;
+export type DisputeOutcome = (typeof DisputeOutcome)[keyof typeof DisputeOutcome];
+
+export const InvitationStatus = {
+  Pending: 'pending',
+  Accepted: 'accepted',
+  Revoked: 'revoked',
+  Expired: 'expired',
+} as const;
+export type InvitationStatus = (typeof InvitationStatus)[keyof typeof InvitationStatus];
 
 export const PayrollFrequency = {
   Weekly: 'weekly',
@@ -86,3 +133,51 @@ export const TransactionOperation = {
 } as const;
 export type TransactionOperation =
   (typeof TransactionOperation)[keyof typeof TransactionOperation];
+
+/**
+ * Notification types emitted by the backend (docs/proyecto_overview.md §7).
+ * The client maps these to icons / deep links.
+ */
+export const NotificationType = {
+  ContractReceived: 'contract_received',
+  ContractAccepted: 'contract_accepted',
+  ContractRejected: 'contract_rejected',
+  ContractChangesRequested: 'contract_changes_requested',
+  DeliverableSubmitted: 'deliverable_submitted',
+  DeliverableApproved: 'deliverable_approved',
+  DeliverableChangesRequested: 'deliverable_changes_requested',
+  PaymentReleased: 'payment_released',
+  DisputeOpened: 'dispute_opened',
+  DisputeResolved: 'dispute_resolved',
+  DisputeEscalated: 'dispute_escalated',
+  PayrollExecuted: 'payroll_executed',
+  PayrollPaymentReceived: 'payroll_payment_received',
+  InvitationReceived: 'invitation_received',
+} as const;
+export type NotificationType = (typeof NotificationType)[keyof typeof NotificationType];
+
+/** Activity log event names (docs/proyecto_overview.md §8). */
+export const ActivityEvent = {
+  ContractCreated: 'contract.created',
+  ContractSent: 'contract.sent',
+  ContractAccepted: 'contract.accepted',
+  ContractRejected: 'contract.rejected',
+  ContractChangesRequested: 'contract.changes_requested',
+  ContractCompleted: 'contract.completed',
+  EscrowCreated: 'escrow.created',
+  EscrowFunded: 'escrow.funded',
+  DeliverableSubmitted: 'deliverable.submitted',
+  MilestoneApproved: 'milestone.approved',
+  MilestoneChangesRequested: 'milestone.changes_requested',
+  PaymentReleased: 'payment.released',
+  DisputeOpened: 'dispute.opened',
+  DisputeEscalated: 'dispute.escalated',
+  DisputeResolved: 'dispute.resolved',
+  PayrollCreated: 'payroll.created',
+  PayrollFunded: 'payroll.funded',
+  PayrollExecuted: 'payroll.executed',
+  UserRegistered: 'user.registered',
+  WalletLinked: 'wallet.linked',
+  InvitationSent: 'invitation.sent',
+} as const;
+export type ActivityEvent = (typeof ActivityEvent)[keyof typeof ActivityEvent];

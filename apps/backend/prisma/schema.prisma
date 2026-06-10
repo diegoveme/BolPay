@@ -25,11 +25,22 @@ enum UserRole {
   administrator
 }
 
+enum AuthProvider {
+  google
+  github
+  discord
+  email
+  wallet
+}
+
 enum ContractStatus {
   draft
+  pending_acceptance
+  changes_requested
   accepted
   active
   completed
+  rejected
 }
 
 enum MilestoneStatus {
@@ -39,6 +50,12 @@ enum MilestoneStatus {
   approved
   released
   disputed
+}
+
+enum DeliverableStatus {
+  submitted
+  changes_requested
+  approved
 }
 
 enum EscrowType {
@@ -51,15 +68,29 @@ enum EscrowStatus {
   funded
   releasing
   released
+  disputed
   closed
 }
 
 enum DisputeStatus {
   open
   under_review
-  resolved
   escalated
+  resolved
   closed
+}
+
+enum DisputeOutcome {
+  release_to_freelancer
+  refund_to_company
+  split
+}
+
+enum InvitationStatus {
+  pending
+  accepted
+  revoked
+  expired
 }
 
 enum PayrollFrequency {
@@ -95,11 +126,17 @@ enum TransactionOperation {
 // ---------------------------------------------------------------------------
 
 model User {
-  id           String   @id @default(uuid()) @db.Uuid
-  email        String   @unique
-  passwordHash String   @map("password_hash")
-  role         UserRole
-  createdAt    DateTime @default(now()) @map("created_at")
+  id             String       @id @default(uuid()) @db.Uuid
+  email          String       @unique
+  name           String?
+  role           UserRole
+  authProvider   AuthProvider @map("auth_provider")
+  // Stellar G-address of the Pollar-managed wallet. Required to operate
+  // (docs §1: "Conexión de wallet Stellar obligatoria para operar").
+  stellarAddress String?      @unique @map("stellar_address")
+  // Pollar wallet id (wal_...) for server-side operations (activation, lookups).
+  pollarWalletId String?      @unique @map("pollar_wallet_id")
+  createdAt      DateTime     @default(now()) @map("created_at")
 
   companyProfile    CompanyProfile?
   freelancerProfile FreelancerProfile?
@@ -107,7 +144,11 @@ model User {
   notifications     Notification[]
   activityLogs      ActivityLog[]
   disputesOpened    Dispute[]          @relation("DisputeOpenedBy")
+  disputesResolved  Dispute[]          @relation("DisputeResolvedBy")
   evidenceSubmitted DisputeEvidence[]  @relation("EvidenceSubmittedBy")
+  deliverables      Deliverable[]      @relation("DeliverableSubmittedBy")
+  invitationsSent   Invitation[]       @relation("InvitationInvitedBy")
+  payrollItems      PayrollItem[]
 
   @@map("users")
 }
@@ -120,6 +161,7 @@ model Wallet {
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@unique([userId, stellarAddress])
   @@index([userId])
   @@map("wallets")
 }
@@ -149,6 +191,23 @@ model FreelancerProfile {
   @@map("freelancer_profiles")
 }
 
+// Email invitations (docs §1: "Invitaciones por correo electrónico").
+model Invitation {
+  id          String           @id @default(uuid()) @db.Uuid
+  email       String
+  role        UserRole
+  token       String           @unique
+  status      InvitationStatus @default(pending)
+  invitedById String           @map("invited_by") @db.Uuid
+  createdAt   DateTime         @default(now()) @map("created_at")
+  expiresAt   DateTime         @map("expires_at")
+
+  invitedBy User @relation("InvitationInvitedBy", fields: [invitedById], references: [id])
+
+  @@index([email])
+  @@map("invitations")
+}
+
 // ---------------------------------------------------------------------------
 // Contracts & milestones
 // ---------------------------------------------------------------------------
@@ -161,6 +220,11 @@ model Contract {
   description  String?
   totalAmount  Decimal        @map("total_amount") @db.Decimal(20, 7)
   status       ContractStatus @default(draft)
+  // Freelancer feedback when requesting changes or rejecting.
+  reviewNote   String?        @map("review_note")
+  deadline     DateTime?      @db.Date
+  acceptedAt   DateTime?      @map("accepted_at")
+  completedAt  DateTime?      @map("completed_at")
   escrowId     String?        @unique @map("escrow_id") @db.Uuid
   createdAt    DateTime       @default(now()) @map("created_at")
 
@@ -175,32 +239,43 @@ model Contract {
 }
 
 model Milestone {
-  id         String          @id @default(uuid()) @db.Uuid
-  contractId String          @map("contract_id") @db.Uuid
-  title      String
-  amount     Decimal         @db.Decimal(20, 7)
-  deadline   DateTime?       @db.Date
-  status     MilestoneStatus @default(pending)
+  id          String          @id @default(uuid()) @db.Uuid
+  contractId  String          @map("contract_id") @db.Uuid
+  // 0-based position; matches the Trustless Work milestone index on-chain.
+  position    Int             @default(0)
+  title       String
+  description String?
+  amount      Decimal         @db.Decimal(20, 7)
+  deadline    DateTime?       @db.Date
+  status      MilestoneStatus @default(pending)
 
   contract     Contract      @relation(fields: [contractId], references: [id], onDelete: Cascade)
   deliverables Deliverable[]
   disputes     Dispute[]
   transactions Transaction[]
 
+  @@unique([contractId, position])
   @@index([contractId])
   @@map("milestones")
 }
 
 model Deliverable {
-  id          String   @id @default(uuid()) @db.Uuid
-  milestoneId String   @map("milestone_id") @db.Uuid
-  fileUrl     String?  @map("file_url")
-  linkUrl     String?  @map("link_url")
-  version     Int      @default(1)
-  submittedAt DateTime @default(now()) @map("submitted_at")
+  id            String            @id @default(uuid()) @db.Uuid
+  milestoneId   String            @map("milestone_id") @db.Uuid
+  submittedById String            @map("submitted_by") @db.Uuid
+  fileUrl       String?           @map("file_url")
+  linkUrl       String?           @map("link_url")
+  note          String?
+  version       Int               @default(1)
+  status        DeliverableStatus @default(submitted)
+  // Company feedback when requesting changes.
+  reviewNote    String?           @map("review_note")
+  submittedAt   DateTime          @default(now()) @map("submitted_at")
 
-  milestone Milestone @relation(fields: [milestoneId], references: [id], onDelete: Cascade)
+  milestone   Milestone @relation(fields: [milestoneId], references: [id], onDelete: Cascade)
+  submittedBy User      @relation("DeliverableSubmittedBy", fields: [submittedById], references: [id])
 
+  @@unique([milestoneId, version])
   @@index([milestoneId])
   @@map("deliverables")
 }
@@ -211,10 +286,14 @@ model Deliverable {
 
 model Escrow {
   id              String       @id @default(uuid()) @db.Uuid
-  trustlessWorkId String?      @map("trustless_work_id")
+  // Soroban contract id of the Trustless Work escrow on Stellar.
+  trustlessWorkId String?      @unique @map("trustless_work_id")
   type            EscrowType
   status          EscrowStatus @default(created)
+  asset           String       @default("USDC")
   fundedAmount    Decimal?     @map("funded_amount") @db.Decimal(20, 7)
+  releasedAmount  Decimal?     @map("released_amount") @db.Decimal(20, 7)
+  createdAt       DateTime     @default(now()) @map("created_at")
 
   contract Contract?
   payroll  Payroll?
@@ -227,27 +306,35 @@ model Escrow {
 // ---------------------------------------------------------------------------
 
 model Dispute {
-  id          String        @id @default(uuid()) @db.Uuid
-  milestoneId String        @map("milestone_id") @db.Uuid
-  openedById  String        @map("opened_by") @db.Uuid
-  status      DisputeStatus @default(open)
-  resolution  String?
-  openedAt    DateTime      @default(now()) @map("opened_at")
+  id               String          @id @default(uuid()) @db.Uuid
+  milestoneId      String          @map("milestone_id") @db.Uuid
+  openedById       String          @map("opened_by") @db.Uuid
+  reason           String
+  status           DisputeStatus   @default(open)
+  outcome          DisputeOutcome?
+  freelancerAmount Decimal?        @map("freelancer_amount") @db.Decimal(20, 7)
+  companyAmount    Decimal?        @map("company_amount") @db.Decimal(20, 7)
+  resolution       String?
+  resolvedById     String?         @map("resolved_by") @db.Uuid
+  openedAt         DateTime        @default(now()) @map("opened_at")
+  resolvedAt       DateTime?       @map("resolved_at")
 
-  milestone Milestone         @relation(fields: [milestoneId], references: [id], onDelete: Cascade)
-  openedBy  User              @relation("DisputeOpenedBy", fields: [openedById], references: [id])
-  evidence  DisputeEvidence[]
+  milestone  Milestone         @relation(fields: [milestoneId], references: [id], onDelete: Cascade)
+  openedBy   User              @relation("DisputeOpenedBy", fields: [openedById], references: [id])
+  resolvedBy User?             @relation("DisputeResolvedBy", fields: [resolvedById], references: [id])
+  evidence   DisputeEvidence[]
 
   @@index([milestoneId])
   @@map("disputes")
 }
 
 model DisputeEvidence {
-  id            String  @id @default(uuid()) @db.Uuid
-  disputeId     String  @map("dispute_id") @db.Uuid
-  submittedById String  @map("submitted_by") @db.Uuid
-  fileUrl       String? @map("file_url")
+  id            String   @id @default(uuid()) @db.Uuid
+  disputeId     String   @map("dispute_id") @db.Uuid
+  submittedById String   @map("submitted_by") @db.Uuid
+  fileUrl       String?  @map("file_url")
   comment       String?
+  createdAt     DateTime @default(now()) @map("created_at")
 
   dispute     Dispute @relation(fields: [disputeId], references: [id], onDelete: Cascade)
   submittedBy User    @relation("EvidenceSubmittedBy", fields: [submittedById], references: [id])
@@ -263,10 +350,12 @@ model DisputeEvidence {
 model Payroll {
   id        String           @id @default(uuid()) @db.Uuid
   companyId String           @map("company_id") @db.Uuid
+  name      String
   frequency PayrollFrequency
   status    PayrollStatus    @default(draft)
-  nextRun   DateTime?        @map("next_run") @db.Date
+  nextRun   DateTime?        @map("next_run")
   escrowId  String?          @unique @map("escrow_id") @db.Uuid
+  createdAt DateTime         @default(now()) @map("created_at")
 
   company    CompanyProfile     @relation(fields: [companyId], references: [id])
   escrow     Escrow?            @relation(fields: [escrowId], references: [id])
@@ -280,23 +369,29 @@ model Payroll {
 model PayrollItem {
   id               String  @id @default(uuid()) @db.Uuid
   payrollId        String  @map("payroll_id") @db.Uuid
+  // Linked platform user (fixed employee) or null for an external wallet.
+  recipientUserId  String? @map("recipient_user_id") @db.Uuid
   recipientAddress String  @map("recipient_address")
+  recipientLabel   String? @map("recipient_label")
   amount           Decimal @db.Decimal(20, 7)
 
-  payroll      Payroll       @relation(fields: [payrollId], references: [id], onDelete: Cascade)
-  transactions Transaction[]
+  payroll       Payroll       @relation(fields: [payrollId], references: [id], onDelete: Cascade)
+  recipientUser User?         @relation(fields: [recipientUserId], references: [id])
+  transactions  Transaction[]
 
   @@index([payrollId])
   @@map("payroll_items")
 }
 
 model PayrollExecution {
-  id         String                 @id @default(uuid()) @db.Uuid
-  payrollId  String                 @map("payroll_id") @db.Uuid
-  executedAt DateTime               @default(now()) @map("executed_at")
-  status     PayrollExecutionStatus @default(pending)
+  id          String                 @id @default(uuid()) @db.Uuid
+  payrollId   String                 @map("payroll_id") @db.Uuid
+  executedAt  DateTime               @default(now()) @map("executed_at")
+  status      PayrollExecutionStatus @default(pending)
+  totalAmount Decimal                @default(0) @map("total_amount") @db.Decimal(20, 7)
 
-  payroll Payroll @relation(fields: [payrollId], references: [id], onDelete: Cascade)
+  payroll      Payroll       @relation(fields: [payrollId], references: [id], onDelete: Cascade)
+  transactions Transaction[]
 
   @@index([payrollId])
   @@map("payroll_executions")
@@ -307,19 +402,23 @@ model PayrollExecution {
 // ---------------------------------------------------------------------------
 
 model Transaction {
-  id            String               @id @default(uuid()) @db.Uuid
-  stellarHash   String?              @unique @map("stellar_hash")
-  operation     TransactionOperation
-  amount        Decimal              @db.Decimal(20, 7)
-  confirmedAt   DateTime?            @map("confirmed_at")
-  milestoneId   String?              @map("milestone_id") @db.Uuid
-  payrollItemId String?              @map("payroll_item_id") @db.Uuid
+  id                 String               @id @default(uuid()) @db.Uuid
+  stellarHash        String?              @unique @map("stellar_hash")
+  operation          TransactionOperation
+  amount             Decimal              @db.Decimal(20, 7)
+  confirmedAt        DateTime?            @map("confirmed_at")
+  createdAt          DateTime             @default(now()) @map("created_at")
+  milestoneId        String?              @map("milestone_id") @db.Uuid
+  payrollItemId      String?              @map("payroll_item_id") @db.Uuid
+  payrollExecutionId String?              @map("payroll_execution_id") @db.Uuid
 
-  milestone   Milestone?   @relation(fields: [milestoneId], references: [id])
-  payrollItem PayrollItem? @relation(fields: [payrollItemId], references: [id])
+  milestone        Milestone?        @relation(fields: [milestoneId], references: [id])
+  payrollItem      PayrollItem?      @relation(fields: [payrollItemId], references: [id])
+  payrollExecution PayrollExecution? @relation(fields: [payrollExecutionId], references: [id])
 
   @@index([milestoneId])
   @@index([payrollItemId])
+  @@index([payrollExecutionId])
   @@map("transactions")
 }
 
@@ -332,12 +431,13 @@ model Notification {
   userId    String   @map("user_id") @db.Uuid
   type      String
   message   String
+  data      Json?
   read      Boolean  @default(false)
   createdAt DateTime @default(now()) @map("created_at")
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@index([userId])
+  @@index([userId, read])
   @@map("notifications")
 }
 

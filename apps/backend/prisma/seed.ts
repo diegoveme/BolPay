@@ -1,10 +1,10 @@
-import { PrismaClient, UserRole } from '@prisma/client';
+import { AuthProvider, PrismaClient, UserRole } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
 /**
- * Minimal development seed. Expand as the domain grows.
- * Run with: bun run db:seed  (from apps/backend)
+ * Minimal development seed. Creates the platform administrator (admins can
+ * only be created by invitation afterwards). Run with: bun run db:seed
  */
 async function main() {
   const admin = await prisma.user.upsert({
@@ -12,9 +12,9 @@ async function main() {
     update: {},
     create: {
       email: 'admin@bolpay.local',
-      // Dev-only placeholder; replace with a real hash from the Auth module.
-      passwordHash: 'CHANGE_ME',
+      name: 'BolPay Admin',
       role: UserRole.administrator,
+      authProvider: AuthProvider.email,
     },
   });
 
