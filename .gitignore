@@ -1,0 +1,75 @@
+# ---------------------------------------------------------------------------
+# Dependencies
+# ---------------------------------------------------------------------------
+node_modules/
+.pnp/
+.pnp.js
+
+# ---------------------------------------------------------------------------
+# Build outputs
+# ---------------------------------------------------------------------------
+dist/
+build/
+coverage/
+*.tsbuildinfo
+.turbo/
+
+# Vite
+apps/web/dist/
+apps/web/.vite/
+
+# NestJS
+apps/backend/dist/
+
+# Prisma generated client (re-generated from schema)
+apps/backend/node_modules/.prisma/
+
+# ---------------------------------------------------------------------------
+# Environment / secrets (NEVER commit real values — use *.example)
+# ---------------------------------------------------------------------------
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# ---------------------------------------------------------------------------
+# Flutter / Dart (apps/mobile)
+# ---------------------------------------------------------------------------
+apps/mobile/.dart_tool/
+apps/mobile/.flutter-plugins
+apps/mobile/.flutter-plugins-dependencies
+apps/mobile/build/
+apps/mobile/.idea/
+apps/mobile/android/.gradle/
+apps/mobile/android/local.properties
+apps/mobile/ios/Pods/
+apps/mobile/ios/.symlinks/
+apps/mobile/**/GeneratedPluginRegistrant.*
+
+# ---------------------------------------------------------------------------
+# Editor / OS
+# ---------------------------------------------------------------------------
+.DS_Store
+Thumbs.db
+.vscode/
+*.log
+npm-debug.log*
+
+# ---------------------------------------------------------------------------
+# AI / Claude tooling — local only, never committed
+# ---------------------------------------------------------------------------
+.claude/
+TODO.md
+skills-lock.json
+
+# Internal planning / context notes (academic report drafts) — local only.
+internal/
+*.local.md
+
+# Playwright MCP debug output (console logs + page snapshots).
+.playwright-mcp/
+
+# MCP config holds live API keys (e.g. Stitch X-Goog-Api-Key) in plaintext.
+.mcp.json
+mcp.json
