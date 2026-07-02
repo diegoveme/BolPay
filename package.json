@@ -1,0 +1,25 @@
+{
+  "name": "bolpay",
+  "version": "0.0.0",
+  "private": true,
+  "description": "BolPay — trustless freelance contracting + on-chain payroll on Stellar",
+  "packageManager": "bun@1.3.14",
+  "workspaces": [
+    "apps/backend",
+    "apps/web",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "typecheck": "turbo run typecheck",
+    "db:generate": "turbo run db:generate",
+    "format": "prettier --write \"**/*.{ts,tsx,json,md}\""
+  },
+  "devDependencies": {
+    "prettier": "^3.9.4",
+    "turbo": "^2.10.2"
+  }
+}
