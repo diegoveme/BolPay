@@ -21,6 +21,7 @@ import type {
   UserRole,
 } from '@bolpay/shared';
 
+/** Minimal user fields embedded in other API responses. */
 export interface UserSummary {
   id: string;
   email: string;
@@ -29,6 +30,7 @@ export interface UserSummary {
   name?: string | null;
 }
 
+/** Contract row for list views, with parties, escrow and milestone summaries. */
 export interface ContractListItem extends Omit<Contract, 'milestones'> {
   company: CompanyProfile & { user?: UserSummary };
   freelancer: FreelancerProfile & { user?: UserSummary };
@@ -36,12 +38,14 @@ export interface ContractListItem extends Omit<Contract, 'milestones'> {
   milestones: Pick<Milestone, 'id' | 'status' | 'amount'>[];
 }
 
+/** Milestone with its deliverables, transactions and disputes. */
 export interface MilestoneDetail extends Milestone {
   deliverables: Deliverable[];
   transactions: Transaction[];
   disputes: Dispute[];
 }
 
+/** Full contract for the detail view, with parties, escrow and milestones. */
 export interface ContractDetail extends Contract {
   company: CompanyProfile & { user: UserSummary };
   freelancer: FreelancerProfile & { user: UserSummary };
@@ -49,6 +53,7 @@ export interface ContractDetail extends Contract {
   milestones: MilestoneDetail[];
 }
 
+/** Dispute row for list views, with its milestone, contract and opener. */
 export interface DisputeListItem extends Dispute {
   milestone: {
     id: string;
@@ -59,6 +64,7 @@ export interface DisputeListItem extends Dispute {
   openedBy: UserSummary;
 }
 
+/** Full dispute for the detail view, with milestone, evidence and actors. */
 export interface DisputeDetail extends Dispute {
   milestone: MilestoneDetail & {
     contract: ContractDetail;
@@ -68,6 +74,7 @@ export interface DisputeDetail extends Dispute {
   resolvedBy?: UserSummary | null;
 }
 
+/** Full payroll for the detail view, with escrow, items and executions. */
 export interface PayrollDetail extends Payroll {
   company: { id: string; name: string; userId: string };
   escrow?: Escrow | null;
@@ -75,10 +82,12 @@ export interface PayrollDetail extends Payroll {
   executions: (PayrollExecution & { transactions: Transaction[] })[];
 }
 
+/** Freelancer directory entry: profile plus its user summary. */
 export interface FreelancerDirectoryItem extends FreelancerProfile {
   user: UserSummary;
 }
 
+/** Employee directory entry: user summary with a required Stellar address. */
 export interface EmployeeDirectoryItem extends UserSummary {
   stellarAddress: string | null;
 }

@@ -17,8 +17,13 @@ import {
   Spinner,
 } from '@/components/ui';
 
-const frequencyLabel = { weekly: 'Semanal', biweekly: 'Quincenal', monthly: 'Mensual' };
+/** Maps a payroll frequency value to its display label. */
+const frequencyLabel = { weekly: 'Weekly', biweekly: 'Biweekly', monthly: 'Monthly' };
 
+/**
+ * Lists all payrolls in a table, showing frequency, recipient count, per-cycle
+ * total, next run and status. Rows link to the payroll detail page.
+ */
 export function PayrollsPage() {
   const navigate = useNavigate();
   const { data, isLoading, error } = useQuery({
@@ -29,34 +34,34 @@ export function PayrollsPage() {
   return (
     <>
       <PageHeader
-        title="Nómina on-chain"
-        subtitle="Planillas periódicas con distribución automática en USDC"
+        title="On-chain payroll"
+        subtitle="Recurring payrolls with automatic USDC distribution"
         actions={
           <Link to="/payrolls/new" className="btn btn--primary">
-            + Nueva planilla
+            + New payroll
           </Link>
         }
       />
       <Card>
         {isLoading ? (
-          <Spinner label="Cargando planillas…" />
+          <Spinner label="Loading payrolls…" />
         ) : error ? (
           <ErrorState message={apiErrorMessage(error)} />
         ) : !data || data.length === 0 ? (
           <EmptyState
-            title="No hay planillas"
-            hint="Crea una planilla, agrégale destinatarios y fondéala para programar la distribución."
+            title="No payrolls"
+            hint="Create a payroll, add recipients and fund it to schedule the distribution."
           />
         ) : (
           <table className="table table--clickable">
             <thead>
               <tr>
-                <th>Planilla</th>
-                <th>Frecuencia</th>
-                <th>Destinatarios</th>
-                <th>Total por ciclo</th>
-                <th>Próxima ejecución</th>
-                <th>Estado</th>
+                <th>Payroll</th>
+                <th>Frequency</th>
+                <th>Recipients</th>
+                <th>Total per cycle</th>
+                <th>Next run</th>
+                <th>Status</th>
               </tr>
             </thead>
             <tbody>

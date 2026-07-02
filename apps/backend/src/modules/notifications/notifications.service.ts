@@ -14,7 +14,7 @@ export interface NotificationEvent {
 
 /**
  * Persists notifications and pushes them in real time to connected clients
- * via Server-Sent Events (docs/proyecto_overview.md §7).
+ * via Server-Sent Events.
  */
 @Injectable()
 export class NotificationsService {
@@ -44,6 +44,7 @@ export class NotificationsService {
     );
   }
 
+  /** List a user's most recent notifications, optionally only unread ones. */
   list(userId: string, onlyUnread = false) {
     return this.prisma.notification.findMany({
       where: { userId, ...(onlyUnread ? { read: false } : {}) },
@@ -52,6 +53,7 @@ export class NotificationsService {
     });
   }
 
+  /** Mark a single notification as read, scoped to its owner. */
   async markRead(id: string, userId: string) {
     const { count } = await this.prisma.notification.updateMany({
       where: { id, userId },
@@ -61,6 +63,7 @@ export class NotificationsService {
     return { id, read: true };
   }
 
+  /** Mark all of a user's unread notifications as read. */
   markAllRead(userId: string) {
     return this.prisma.notification.updateMany({
       where: { userId, read: false },

@@ -16,11 +16,34 @@ export interface ChainMilestone {
   receiver: string;
 }
 
+/**
+ * Stellar addresses for the non-custodial escrow roles. The platform fills
+ * `platformAddress` + `disputeResolver` with its OWN (arbiter) address; these
+ * are the parties that sign their own operations.
+ */
+export interface EscrowRoles {
+  /** Validates and approves milestones (the company). */
+  approver: string;
+  /** Delivers the work (the freelancer). */
+  serviceProvider: string;
+  /** Releases approved milestone funds (the company). */
+  releaseSigner: string;
+  /**
+   * Executes the mutually-agreed dispute resolution on-chain. Omit to default
+   * to the platform: it can only split the locked funds between the two
+   * parties' addresses (never redirect/skim), so it safely executes whatever
+   * outcome the parties agreed to. Opening a dispute is still signed by a party.
+   */
+  disputeResolver?: string;
+}
+
 export interface DeployEscrowParams {
   engagementId: string;
   title: string;
   description: string;
   milestones: ChainMilestone[];
+  /** Non-custodial role addresses; omit in simulated mode. */
+  roles?: EscrowRoles;
 }
 
 export interface ChainTxResult {
@@ -36,8 +59,17 @@ export interface EscrowChainAdapter {
   /** Deploy a multi-release escrow with one on-chain milestone per entry. */
   deployMultiRelease(params: DeployEscrowParams): Promise<DeployResult>;
 
-  /** Move funds into the escrow (signed by the platform funding account). */
-  fundEscrow(contractId: string, amount: string): Promise<ChainTxResult>;
+  /**
+   * Build (but DO NOT sign) the fund transaction so the funder signs it with
+   * their OWN wallet (Pollar) - BolPay never moves the company's money.
+   * Returns the unsigned XDR, or `null` when no on-chain signature is needed
+   * (simulated mode).
+   */
+  buildFundXdr(
+    contractId: string,
+    amount: string,
+    signerAddress: string,
+  ): Promise<string | null>;
 
   /** Service-provider side: mark a milestone as delivered with evidence. */
   markMilestoneDone(
@@ -45,6 +77,17 @@ export interface EscrowChainAdapter {
     milestoneIndex: number,
     evidence: string,
   ): Promise<ChainTxResult>;
+
+  /**
+   * Non-custodial: unsigned XDR for the service provider (freelancer) to sign
+   * when marking a milestone delivered. null = simulated (no signature needed).
+   */
+  buildChangeStatusXdr(
+    contractId: string,
+    milestoneIndex: number,
+    evidence: string,
+    serviceProvider: string,
+  ): Promise<string | null>;
 
   /** Approver side: approve the milestone. */
   approveMilestone(
@@ -58,11 +101,30 @@ export interface EscrowChainAdapter {
     milestoneIndex: number,
   ): Promise<ChainTxResult>;
 
-  /** Flag a milestone as disputed (locks its funds). */
-  disputeMilestone(
+  /** Non-custodial: unsigned XDR for the approver (company) to sign. null = simulated. */
+  buildApproveXdr(
     contractId: string,
     milestoneIndex: number,
-  ): Promise<ChainTxResult>;
+    approver: string,
+  ): Promise<string | null>;
+
+  /** Non-custodial: unsigned XDR for the release signer (company) to sign. null = simulated. */
+  buildReleaseXdr(
+    contractId: string,
+    milestoneIndex: number,
+    releaseSigner: string,
+  ): Promise<string | null>;
+
+  /**
+   * Non-custodial: unsigned dispute XDR for a PARTY to sign. TW only lets a
+   * party (company or freelancer) open a dispute, so this is signed by whoever
+   * raises it. null = simulated.
+   */
+  buildDisputeXdr(
+    contractId: string,
+    milestoneIndex: number,
+    signer: string,
+  ): Promise<string | null>;
 
   /** Resolve a disputed milestone by distributing its funds. */
   resolveDispute(
@@ -70,4 +132,12 @@ export interface EscrowChainAdapter {
     milestoneIndex: number,
     distributions: [address: string, amount: string][],
   ): Promise<ChainTxResult>;
+
+  /**
+   * Broadcast a transaction already signed by a self-custodial wallet (Stellar
+   * Wallets Kit). The client cannot reach Trustless Work directly (the API key
+   * is server-side), so it relays the signed XDR through here. Returns the
+   * on-chain hash. Pollar wallets sign+submit themselves and never use this.
+   */
+  submitSigned(signedXdr: string): Promise<string>;
 }

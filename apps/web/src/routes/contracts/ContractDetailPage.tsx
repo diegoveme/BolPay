@@ -12,21 +12,30 @@ import {
   milestoneStatusLabel,
   milestoneStatusTone,
   shortAddress,
-  stellarExpertTxUrl,
+  stellarTxUrl,
 } from '@/lib/format';
 import { useNotificationsUi } from '@/notifications/NotificationsContext';
+import { useWalletSign } from '@/lib/useWalletSign';
 import {
   Badge,
   Button,
   Card,
+  ConfirmModal,
   ErrorState,
-  Field,
-  Modal,
   PageHeader,
   Spinner,
-  TextareaField,
 } from '@/components/ui';
+import { PartyMini } from './components/PartyMini';
+import { ContractDecisionModal } from './components/ContractDecisionModal';
+import { DeliverableModal } from './components/DeliverableModal';
+import { RequestChangesModal } from './components/RequestChangesModal';
+import { OpenDisputeModal } from './components/OpenDisputeModal';
 
+/**
+ * Contract detail view: parties, escrow status and milestone lifecycle.
+ * Drives the non-custodial funding, approval and dispute flows for both the
+ * company and the freelancer.
+ */
 export function ContractDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { user } = useAuth();
@@ -38,6 +47,11 @@ export function ContractDetailPage() {
   const [reviewFor, setReviewFor] = useState<MilestoneDetail | null>(null);
   const [disputeFor, setDisputeFor] = useState<MilestoneDetail | null>(null);
   const [decision, setDecision] = useState<'reject' | 'request-changes' | null>(null);
+  const [confirmAccept, setConfirmAccept] = useState(false);
+  const [confirmSend, setConfirmSend] = useState(false);
+  const [confirmFund, setConfirmFund] = useState(false);
+  const [approveFor, setApproveFor] = useState<MilestoneDetail | null>(null);
+  const sign = useWalletSign();
 
   const { data: contract, isLoading, error } = useQuery({
     queryKey: ['contracts', id],
@@ -73,13 +87,57 @@ export function ContractDetailPage() {
       invalidate();
       setReviewFor(null);
       if (args.action === 'approve') {
-        pushToast('Milestone aprobado: fondos liberados al freelancer');
+        pushToast('Milestone approved: funds released to the freelancer');
       }
     },
     onError: (err) => pushToast(apiErrorMessage(err)),
   });
 
-  if (isLoading) return <Spinner label="Cargando contrato…" />;
+  // Non-custodial funding: the company signs the fund XDR with its own wallet.
+  const fund = useMutation({
+    mutationFn: async () => {
+      const { data } = await api.post<{ unsignedXdr: string | null }>(
+        `/contracts/${id}/escrow/prepare-fund`,
+      );
+      const txHash = data.unsignedXdr ? await sign(data.unsignedXdr) : undefined;
+      return api.post(
+        `/contracts/${id}/escrow/confirm-fund`,
+        txHash ? { txHash } : {},
+      );
+    },
+    onSuccess: () => {
+      invalidate();
+      setConfirmFund(false);
+      pushToast('Escrow funded successfully');
+    },
+    onError: (err) => pushToast(apiErrorMessage(err)),
+  });
+
+  // Non-custodial release: the company signs the approve, then the release.
+  const approveRelease = useMutation({
+    mutationFn: async (milestoneId: string) => {
+      const a = await api.post<{ approveXdr: string | null }>(
+        `/milestones/${milestoneId}/approve/prepare`,
+      );
+      if (a.data.approveXdr) await sign(a.data.approveXdr);
+      const r = await api.post<{ releaseXdr: string | null }>(
+        `/milestones/${milestoneId}/release/prepare`,
+      );
+      const txHash = r.data.releaseXdr ? await sign(r.data.releaseXdr) : undefined;
+      return api.post(
+        `/milestones/${milestoneId}/approve/confirm`,
+        txHash ? { txHash } : {},
+      );
+    },
+    onSuccess: () => {
+      invalidate();
+      setApproveFor(null);
+      pushToast('Milestone approved: funds released to the freelancer');
+    },
+    onError: (err) => pushToast(apiErrorMessage(err)),
+  });
+
+  if (isLoading) return <Spinner label="Loading contract…" />;
   if (error || !contract) return <ErrorState message={apiErrorMessage(error)} />;
 
   const isCompany = contract.company.user.id === user?.id;
@@ -103,12 +161,36 @@ export function ContractDetailPage() {
         }
       />
 
+      <Card title="Parties">
+        <div className="form-grid">
+          <PartyMini
+            label="Company"
+            name={contract.company.name}
+            avatarUrl={contract.company.avatarUrl}
+            subtitle={[contract.company.industry, contract.company.location]
+              .filter(Boolean)
+              .join(' · ')}
+            website={contract.company.website}
+          />
+          <PartyMini
+            label="Freelancer"
+            name={contract.freelancer.displayName}
+            avatarUrl={contract.freelancer.avatarUrl}
+            subtitle={[contract.freelancer.headline, contract.freelancer.location]
+              .filter(Boolean)
+              .join(' · ')}
+            website={contract.freelancer.website}
+            skills={contract.freelancer.skills}
+          />
+        </div>
+      </Card>
+
       {contract.description && (
-        <Card title="Descripción">
+        <Card title="Description">
           <p style={{ whiteSpace: 'pre-wrap' }}>{contract.description}</p>
           {contract.deadline && (
             <p className="muted" style={{ marginTop: 10 }}>
-              Fecha límite: {formatDate(contract.deadline)}
+              Due date: {formatDate(contract.deadline)}
             </p>
           )}
         </Card>
@@ -116,47 +198,37 @@ export function ContractDetailPage() {
 
       {contract.reviewNote &&
         ['changes_requested', 'rejected'].includes(contract.status) && (
-          <Card title="Nota del freelancer">
+          <Card title="Note from the freelancer">
             <p style={{ whiteSpace: 'pre-wrap' }}>{contract.reviewNote}</p>
           </Card>
         )}
 
       {/* Company lifecycle actions */}
       {isCompany && editable && (
-        <Card title="Acciones">
+        <Card title="Actions">
           <div className="row">
             <Link to={`/contracts/${contract.id}/edit`} className="btn btn--secondary">
-              Editar
+              Edit
             </Link>
-            <Button
-              loading={contractAction.isPending}
-              onClick={() => contractAction.mutate({ action: 'send' })}
-            >
-              Enviar al freelancer
-            </Button>
+            <Button onClick={() => setConfirmSend(true)}>Send to freelancer</Button>
           </div>
         </Card>
       )}
 
       {/* Freelancer decision */}
       {isFreelancer && contract.status === 'pending_acceptance' && (
-        <Card title="Tienes una propuesta de contrato">
+        <Card title="You have a contract proposal">
           <p className="muted" style={{ marginBottom: 12 }}>
-            Al aceptar, la plataforma despliega y fondea el escrow en Stellar; los
-            pagos se liberan a tu wallet al aprobarse cada milestone.
+            When you accept, the platform deploys and funds the escrow on Stellar;
+            payments are released to your wallet as each milestone is approved.
           </p>
           <div className="row">
-            <Button
-              loading={contractAction.isPending}
-              onClick={() => contractAction.mutate({ action: 'accept' })}
-            >
-              Aceptar contrato
-            </Button>
+            <Button onClick={() => setConfirmAccept(true)}>Accept contract</Button>
             <Button variant="secondary" onClick={() => setDecision('request-changes')}>
-              Pedir cambios
+              Request changes
             </Button>
             <Button variant="danger" onClick={() => setDecision('reject')}>
-              Rechazar
+              Reject
             </Button>
           </div>
         </Card>
@@ -167,21 +239,33 @@ export function ContractDetailPage() {
         <Card title="Escrow (Trustless Work · Stellar testnet)">
           <div className="row" style={{ gap: 24 }}>
             <div>
-              <p className="muted" style={{ fontSize: 13 }}>Contrato Soroban</p>
+              <p className="muted" style={{ fontSize: 13 }}>Soroban contract</p>
               <p className="mono">{shortAddress(contract.escrow.trustlessWorkId)}</p>
             </div>
             <div>
-              <p className="muted" style={{ fontSize: 13 }}>Fondeado</p>
+              <p className="muted" style={{ fontSize: 13 }}>Funded</p>
               <p>{formatUSDC(contract.escrow.fundedAmount)}</p>
             </div>
             <div>
-              <p className="muted" style={{ fontSize: 13 }}>Liberado</p>
+              <p className="muted" style={{ fontSize: 13 }}>Released</p>
               <p>{formatUSDC(contract.escrow.releasedAmount ?? '0')}</p>
             </div>
             <Badge tone={contract.escrow.status === 'released' ? 'success' : 'info'}>
               {contract.escrow.status}
             </Badge>
           </div>
+        </Card>
+      )}
+
+      {/* Company funds the escrow with its own wallet (non-custodial) */}
+      {isCompany && contract.escrow?.status === 'created' && (
+        <Card title="Fund escrow">
+          <p className="muted" style={{ marginBottom: 12 }}>
+            To activate payments, fund the escrow with{' '}
+            {formatUSDC(contract.totalAmount)} from your wallet. You sign it with
+            your own wallet; BolPay never touches your funds.
+          </p>
+          <Button onClick={() => setConfirmFund(true)}>Fund escrow</Button>
         </Card>
       )}
 
@@ -203,7 +287,7 @@ export function ContractDetailPage() {
                   </p>
                   <p className="milestone__meta">
                     {formatUSDC(milestone.amount)}
-                    {milestone.deadline && <> · vence {formatDate(milestone.deadline)}</>}
+                    {milestone.deadline && <> · due {formatDate(milestone.deadline)}</>}
                   </p>
                 </div>
                 <div className="row">
@@ -219,30 +303,28 @@ export function ContractDetailPage() {
                         onClick={() => setDeliverableFor(milestone)}
                       >
                         {milestone.deliverables.length > 0
-                          ? 'Nueva versión'
-                          : 'Subir entrega'}
+                          ? 'New version'
+                          : 'Upload deliverable'}
                       </Button>
                     )}
 
                   {isCompany &&
                     ['submitted', 'in_review'].includes(milestone.status) && (
                       <>
-                        <Button
-                          loading={milestoneAction.isPending}
-                          onClick={() =>
-                            milestoneAction.mutate({
-                              milestoneId: milestone.id,
-                              action: 'approve',
-                            })
-                          }
-                        >
-                          Aprobar y pagar
-                        </Button>
+                        {contract.escrow?.status === 'funded' ? (
+                          <Button onClick={() => setApproveFor(milestone)}>
+                            Approve and pay
+                          </Button>
+                        ) : (
+                          <span className="muted" style={{ fontSize: 12.5 }}>
+                            Fund the escrow to release
+                          </span>
+                        )}
                         <Button
                           variant="secondary"
                           onClick={() => setReviewFor(milestone)}
                         >
-                          Pedir cambios
+                          Request changes
                         </Button>
                       </>
                     )}
@@ -251,13 +333,13 @@ export function ContractDetailPage() {
                     contract.status === 'active' &&
                     !['released', 'disputed'].includes(milestone.status) && (
                       <Button variant="ghost" onClick={() => setDisputeFor(milestone)}>
-                        Abrir disputa
+                        Open dispute
                       </Button>
                     )}
 
                   {openDispute && (
                     <Link to={`/disputes/${openDispute.id}`} className="btn btn--ghost">
-                      Ver disputa
+                      View dispute
                     </Link>
                   )}
                 </div>
@@ -283,10 +365,10 @@ export function ContractDetailPage() {
                       }
                     >
                       {deliverable.status === 'approved'
-                        ? 'Aprobado'
+                        ? 'Approved'
                         : deliverable.status === 'changes_requested'
-                          ? 'Cambios solicitados'
-                          : 'Entregado'}
+                          ? 'Changes requested'
+                          : 'Delivered'}
                     </Badge>
                     <span className="muted">{formatDate(deliverable.submittedAt)}</span>
                   </div>
@@ -311,7 +393,7 @@ export function ContractDetailPage() {
                         className="mono"
                         style={{ color: 'var(--color-primary)' }}
                       >
-                        archivo
+                        file
                       </a>
                     )}
                   </div>
@@ -325,19 +407,19 @@ export function ContractDetailPage() {
 
               {releaseTx?.stellarHash && (
                 <p className="muted" style={{ marginTop: 10, fontSize: 12.5 }}>
-                  Pago on-chain:{' '}
-                  {stellarExpertTxUrl(releaseTx.stellarHash) ? (
+                  On-chain payment:{' '}
+                  {stellarTxUrl(releaseTx.stellarHash) ? (
                     <a
                       className="mono"
                       style={{ color: 'var(--color-primary)' }}
-                      href={stellarExpertTxUrl(releaseTx.stellarHash)!}
+                      href={stellarTxUrl(releaseTx.stellarHash)!}
                       target="_blank"
                       rel="noreferrer"
                     >
                       {shortAddress(releaseTx.stellarHash)}
                     </a>
                   ) : (
-                    <span className="mono">{shortAddress(releaseTx.stellarHash)} (simulado)</span>
+                    <span className="mono">{shortAddress(releaseTx.stellarHash)} (simulated)</span>
                   )}
                 </p>
               )}
@@ -347,6 +429,87 @@ export function ContractDetailPage() {
       </Card>
 
       {/* Modals */}
+      {confirmSend && (
+        <ConfirmModal
+          title="Send contract to the freelancer"
+          confirmLabel="Send to freelancer"
+          loading={contractAction.isPending}
+          onClose={() => setConfirmSend(false)}
+          onConfirm={() =>
+            contractAction.mutate(
+              { action: 'send' },
+              { onSuccess: () => setConfirmSend(false) },
+            )
+          }
+        >
+          <p>
+            The contract will be sent to the freelancer for acceptance. While you
+            wait for their response you will not be able to edit it.
+          </p>
+        </ConfirmModal>
+      )}
+      {confirmFund && (
+        <ConfirmModal
+          title="Fund escrow"
+          confirmLabel={`Fund ${formatUSDC(contract.totalAmount)}`}
+          loading={fund.isPending}
+          onClose={() => setConfirmFund(false)}
+          onConfirm={() => fund.mutate()}
+        >
+          <p>
+            You are about to fund the escrow with {formatUSDC(contract.totalAmount)}{' '}
+            from your wallet. You sign the transaction with your own wallet.
+          </p>
+          <div className="modal__danger-note">
+            The funds stay locked in the escrow until you approve each milestone.
+          </div>
+        </ConfirmModal>
+      )}
+      {confirmAccept && (
+        <ConfirmModal
+          title="Accept contract"
+          confirmLabel="Accept and deploy escrow"
+          loading={contractAction.isPending}
+          onClose={() => setConfirmAccept(false)}
+          onConfirm={() =>
+            contractAction.mutate(
+              { action: 'accept' },
+              { onSuccess: () => setConfirmAccept(false) },
+            )
+          }
+        >
+          <p>
+            When you accept, the escrow is deployed on Stellar for{' '}
+            {formatUSDC(contract.totalAmount)} and the company will fund it to
+            activate payments. Funds are released to your wallet as each milestone is
+            approved.
+          </p>
+          <div className="modal__danger-note">
+            This starts an on-chain escrow; the action cannot be undone.
+          </div>
+        </ConfirmModal>
+      )}
+      {approveFor && (
+        <ConfirmModal
+          title="Approve milestone"
+          danger
+          confirmLabel={`Release ${formatUSDC(approveFor.amount)}`}
+          loading={approveRelease.isPending}
+          onClose={() => setApproveFor(null)}
+          onConfirm={() => approveRelease.mutate(approveFor.id)}
+        >
+          <p>
+            Approving <strong>{approveFor.title}</strong> releases{' '}
+            {formatUSDC(approveFor.amount)} from the escrow to the freelancer's
+            wallet.
+          </p>
+          <div className="modal__danger-note">
+            Your wallet will ask you to sign <strong>two transactions</strong>: first
+            approving the milestone and then releasing the funds. These are two
+            on-chain escrow steps (not an error), and the payment is irreversible.
+          </div>
+        </ConfirmModal>
+      )}
       {decision && (
         <ContractDecisionModal
           mode={decision}
@@ -390,163 +553,5 @@ export function ContractDetailPage() {
         />
       )}
     </>
-  );
-}
-
-function ContractDecisionModal({
-  mode,
-  loading,
-  onClose,
-  onSubmit,
-}: {
-  mode: 'reject' | 'request-changes';
-  loading: boolean;
-  onClose: () => void;
-  onSubmit: (note: string) => void;
-}) {
-  const [note, setNote] = useState('');
-  return (
-    <Modal
-      title={mode === 'reject' ? 'Rechazar contrato' : 'Solicitar cambios'}
-      onClose={onClose}
-    >
-      <TextareaField
-        label="Mensaje para la empresa"
-        value={note}
-        onChange={setNote}
-        placeholder="Explica el motivo…"
-      />
-      <Button
-        variant={mode === 'reject' ? 'danger' : 'primary'}
-        loading={loading}
-        onClick={() => onSubmit(note)}
-      >
-        {mode === 'reject' ? 'Rechazar' : 'Enviar solicitud'}
-      </Button>
-    </Modal>
-  );
-}
-
-function DeliverableModal({
-  milestone,
-  onClose,
-  onDone,
-}: {
-  milestone: MilestoneDetail;
-  onClose: () => void;
-  onDone: () => void;
-}) {
-  const { pushToast } = useNotificationsUi();
-  const [linkUrl, setLinkUrl] = useState('');
-  const [fileUrl, setFileUrl] = useState('');
-  const [note, setNote] = useState('');
-
-  const submit = useMutation({
-    mutationFn: async () =>
-      api.post(`/milestones/${milestone.id}/deliverables`, {
-        linkUrl: linkUrl.trim() || undefined,
-        fileUrl: fileUrl.trim() || undefined,
-        note: note.trim() || undefined,
-      }),
-    onSuccess: onDone,
-    onError: (err) => pushToast(apiErrorMessage(err)),
-  });
-
-  return (
-    <Modal title={`Entrega — ${milestone.title}`} onClose={onClose}>
-      <Field
-        label="Link (repositorio, demo, documento)"
-        value={linkUrl}
-        onChange={(e) => setLinkUrl(e.target.value)}
-        placeholder="https://…"
-      />
-      <Field
-        label="URL de archivo (opcional)"
-        value={fileUrl}
-        onChange={(e) => setFileUrl(e.target.value)}
-        placeholder="https://storage…/entrega.zip"
-      />
-      <TextareaField label="Nota" value={note} onChange={setNote} />
-      <Button
-        loading={submit.isPending}
-        disabled={!linkUrl.trim() && !fileUrl.trim() && !note.trim()}
-        onClick={() => submit.mutate()}
-      >
-        Enviar entrega
-      </Button>
-    </Modal>
-  );
-}
-
-function RequestChangesModal({
-  loading,
-  onClose,
-  onSubmit,
-}: {
-  loading: boolean;
-  onClose: () => void;
-  onSubmit: (note: string) => void;
-}) {
-  const [note, setNote] = useState('');
-  return (
-    <Modal title="Solicitar cambios en la entrega" onClose={onClose}>
-      <TextareaField
-        label="¿Qué debe corregirse?"
-        value={note}
-        onChange={setNote}
-        placeholder="Describe los cambios esperados…"
-      />
-      <Button loading={loading} onClick={() => onSubmit(note)}>
-        Enviar feedback
-      </Button>
-    </Modal>
-  );
-}
-
-function OpenDisputeModal({
-  milestone,
-  onClose,
-  onDone,
-}: {
-  milestone: MilestoneDetail;
-  onClose: () => void;
-  onDone: (disputeId: string) => void;
-}) {
-  const { pushToast } = useNotificationsUi();
-  const [reason, setReason] = useState('');
-
-  const open = useMutation({
-    mutationFn: async () =>
-      (
-        await api.post<{ id: string }>('/disputes', {
-          milestoneId: milestone.id,
-          reason,
-        })
-      ).data,
-    onSuccess: (data) => onDone(data.id),
-    onError: (err) => pushToast(apiErrorMessage(err)),
-  });
-
-  return (
-    <Modal title={`Abrir disputa — ${milestone.title}`} onClose={onClose}>
-      <p className="muted" style={{ fontSize: 13.5, marginBottom: 12 }}>
-        El milestone se pausa y los fondos quedan bloqueados en el escrow hasta que
-        haya una resolución mutua o intervenga un administrador.
-      </p>
-      <TextareaField
-        label="Motivo (mínimo 10 caracteres)"
-        value={reason}
-        onChange={setReason}
-        placeholder="Describe el problema…"
-      />
-      <Button
-        variant="danger"
-        loading={open.isPending}
-        disabled={reason.trim().length < 10}
-        onClick={() => open.mutate()}
-      >
-        Abrir disputa
-      </Button>
-    </Modal>
   );
 }

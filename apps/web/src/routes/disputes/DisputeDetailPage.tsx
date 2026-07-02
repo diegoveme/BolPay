@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { DisputeOutcome } from '@bolpay/shared';
 import { useAuth } from '@/auth/AuthContext';
 import { api, apiErrorMessage } from '@/lib/api';
 import type { DisputeDetail } from '@/lib/types';
@@ -18,15 +17,15 @@ import {
   Card,
   ErrorState,
   Field,
-  Modal,
   PageHeader,
-  SelectField,
   Spinner,
   TextareaField,
 } from '@/components/ui';
+import { ResolveModal } from './ResolveModal';
 
 const OPEN_STATES = ['open', 'under_review', 'escalated'];
 
+/** Dispute detail: reason, evidence thread, resolution and mutual settlement flow. */
 export function DisputeDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { user } = useAuth();
@@ -61,33 +60,27 @@ export function DisputeDetailPage() {
     onError: (err) => pushToast(apiErrorMessage(err)),
   });
 
-  const escalate = useMutation({
-    mutationFn: async () => api.post(`/disputes/${id}/escalate`),
-    onSuccess: invalidate,
-    onError: (err) => pushToast(apiErrorMessage(err)),
-  });
-
-  if (isLoading) return <Spinner label="Cargando disputa…" />;
+  if (isLoading) return <Spinner label="Loading dispute…" />;
   if (error || !dispute) return <ErrorState message={apiErrorMessage(error)} />;
 
   const contract = dispute.milestone.contract;
   const isOpen = OPEN_STATES.includes(dispute.status);
-  const isAdmin = user?.role === 'administrator';
   const isOpener = dispute.openedById === user?.id;
-  const canResolveMutually = isOpen && dispute.status !== 'escalated' && !isOpener && !isAdmin;
-  const canResolveAsAdmin = isOpen && isAdmin;
+  // Disputes are resolved mutually by the parties: the counterparty accepts the
+  // agreed split and the company executes it. No platform/admin involvement.
+  const canResolve = isOpen && !isOpener;
 
   return (
     <>
       <PageHeader
-        title={`Disputa — ${dispute.milestone.title}`}
+        title={`Dispute · ${dispute.milestone.title}`}
         subtitle={
           <>
-            Contrato{' '}
+            Contract{' '}
             <Link to={`/contracts/${contract.id}`} style={{ color: 'var(--color-primary)' }}>
               {contract.title}
             </Link>{' '}
-            · {formatUSDC(dispute.milestone.amount)} en juego
+            · {formatUSDC(dispute.milestone.amount)} at stake
           </>
         }
         actions={
@@ -97,27 +90,27 @@ export function DisputeDetailPage() {
         }
       />
 
-      <Card title="Motivo">
+      <Card title="Reason">
         <p style={{ whiteSpace: 'pre-wrap' }}>{dispute.reason}</p>
         <p className="muted" style={{ marginTop: 8, fontSize: 13 }}>
-          Abierta por {dispute.openedBy.email} · {formatDateTime(dispute.openedAt)}
+          Opened by {dispute.openedBy.email} · {formatDateTime(dispute.openedAt)}
         </p>
       </Card>
 
       {dispute.status === 'resolved' && (
-        <Card title="Resolución">
+        <Card title="Resolution">
           <div className="row" style={{ gap: 24 }}>
             <div>
-              <p className="muted" style={{ fontSize: 13 }}>Al freelancer</p>
+              <p className="muted" style={{ fontSize: 13 }}>To the freelancer</p>
               <p>{formatUSDC(dispute.freelancerAmount ?? '0')}</p>
             </div>
             <div>
-              <p className="muted" style={{ fontSize: 13 }}>A la empresa</p>
+              <p className="muted" style={{ fontSize: 13 }}>To the company</p>
               <p>{formatUSDC(dispute.companyAmount ?? '0')}</p>
             </div>
             <div>
-              <p className="muted" style={{ fontSize: 13 }}>Resuelta por</p>
-              <p>{dispute.resolvedBy?.email ?? '—'}</p>
+              <p className="muted" style={{ fontSize: 13 }}>Resolved by</p>
+              <p>{dispute.resolvedBy?.email ?? '·'}</p>
             </div>
           </div>
           {dispute.resolution && (
@@ -126,9 +119,9 @@ export function DisputeDetailPage() {
         </Card>
       )}
 
-      <Card title={`Evidencia y comentarios (${dispute.evidence.length})`}>
+      <Card title={`Evidence and comments (${dispute.evidence.length})`}>
         {dispute.evidence.length === 0 && (
-          <p className="muted">Aún no hay evidencia adjunta.</p>
+          <p className="muted">No evidence attached yet.</p>
         )}
         {dispute.evidence.map((item) => (
           <div key={item.id} className="deliverable">
@@ -151,48 +144,37 @@ export function DisputeDetailPage() {
           </div>
         ))}
 
-        {isOpen && !isAdmin && (
+        {isOpen && (
           <>
             <hr className="divider" />
             <Field
-              label="URL de evidencia (opcional)"
+              label="Evidence URL (optional)"
               value={fileUrl}
               onChange={(e) => setFileUrl(e.target.value)}
               placeholder="https://…"
             />
-            <TextareaField label="Comentario" value={comment} onChange={setComment} />
+            <TextareaField label="Comment" value={comment} onChange={setComment} />
             <Button
               loading={addEvidence.isPending}
               disabled={!fileUrl.trim() && !comment.trim()}
               onClick={() => addEvidence.mutate()}
             >
-              Adjuntar
+              Attach
             </Button>
           </>
         )}
       </Card>
 
       {isOpen && (
-        <Card title="Resolución">
+        <Card title="Resolution">
           <p className="muted" style={{ fontSize: 13.5, marginBottom: 12 }}>
-            {dispute.status === 'escalated'
-              ? 'La disputa fue escalada: solo un administrador puede ejecutar la resolución sobre el escrow.'
-              : 'La contraparte puede aceptar una resolución mutua, o cualquiera de las partes puede escalar al administrador.'}
+            {canResolve
+              ? 'You settle this between yourselves: review the evidence and, if you agree, accept how the funds are split. The company signs the resolution with its wallet.'
+              : 'Once the other party accepts a resolution, it will be executed on the escrow. You can keep attaching evidence and negotiating.'}
           </p>
-          <div className="row">
-            {(canResolveMutually || canResolveAsAdmin) && (
-              <Button onClick={() => setShowResolve(true)}>Resolver disputa</Button>
-            )}
-            {!isAdmin && dispute.status !== 'escalated' && (
-              <Button
-                variant="secondary"
-                loading={escalate.isPending}
-                onClick={() => escalate.mutate()}
-              >
-                Escalar al administrador
-              </Button>
-            )}
-          </div>
+          {canResolve && (
+            <Button onClick={() => setShowResolve(true)}>Resolve dispute</Button>
+          )}
         </Card>
       )}
 
@@ -207,94 +189,5 @@ export function DisputeDetailPage() {
         />
       )}
     </>
-  );
-}
-
-function ResolveModal({
-  dispute,
-  onClose,
-  onDone,
-}: {
-  dispute: DisputeDetail;
-  onClose: () => void;
-  onDone: () => void;
-}) {
-  const { pushToast } = useNotificationsUi();
-  const [outcome, setOutcome] = useState<DisputeOutcome>(
-    DisputeOutcome.ReleaseToFreelancer,
-  );
-  const [freelancerAmount, setFreelancerAmount] = useState('');
-  const [companyAmount, setCompanyAmount] = useState('');
-  const [resolution, setResolution] = useState('');
-
-  const resolve = useMutation({
-    mutationFn: async () =>
-      api.post(`/disputes/${dispute.id}/resolve`, {
-        outcome,
-        resolution: resolution.trim() || undefined,
-        ...(outcome === DisputeOutcome.Split
-          ? { freelancerAmount, companyAmount }
-          : {}),
-      }),
-    onSuccess: onDone,
-    onError: (err) => pushToast(apiErrorMessage(err)),
-  });
-
-  const milestoneAmount = Number(dispute.milestone.amount);
-  const splitOk =
-    outcome !== DisputeOutcome.Split ||
-    Number(freelancerAmount) + Number(companyAmount) === milestoneAmount;
-
-  return (
-    <Modal title="Resolver disputa" onClose={onClose}>
-      <p className="muted" style={{ fontSize: 13.5, marginBottom: 12 }}>
-        La distribución se ejecuta on-chain sobre el escrow (
-        {formatUSDC(dispute.milestone.amount)}).
-      </p>
-      <SelectField
-        label="Resultado"
-        value={outcome}
-        onChange={(value) => setOutcome(value as DisputeOutcome)}
-        options={[
-          {
-            value: DisputeOutcome.ReleaseToFreelancer,
-            label: 'Liberar todo al freelancer',
-          },
-          { value: DisputeOutcome.RefundToCompany, label: 'Reembolsar todo a la empresa' },
-          { value: DisputeOutcome.Split, label: 'Dividir el monto' },
-        ]}
-      />
-      {outcome === DisputeOutcome.Split && (
-        <div className="form-grid">
-          <Field
-            label="Para el freelancer (USDC)"
-            type="number"
-            min="0"
-            step="0.01"
-            value={freelancerAmount}
-            onChange={(e) => setFreelancerAmount(e.target.value)}
-          />
-          <Field
-            label="Para la empresa (USDC)"
-            type="number"
-            min="0"
-            step="0.01"
-            value={companyAmount}
-            onChange={(e) => setCompanyAmount(e.target.value)}
-            error={
-              splitOk ? undefined : `La suma debe ser ${formatUSDC(milestoneAmount)}`
-            }
-          />
-        </div>
-      )}
-      <TextareaField
-        label="Acuerdo / justificación"
-        value={resolution}
-        onChange={setResolution}
-      />
-      <Button loading={resolve.isPending} disabled={!splitOk} onClick={() => resolve.mutate()}>
-        Ejecutar resolución
-      </Button>
-    </Modal>
   );
 }

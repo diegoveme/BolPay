@@ -9,6 +9,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { ActivityLogsService } from '../activity-logs/activity-logs.service';
 import { EscrowService } from '../escrow/escrow.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { ContractsService } from '../contracts/contracts.service';
 import type { AuthUser } from '../../common/types/auth';
 import {
   AddEvidenceDto,
@@ -44,6 +45,24 @@ type LoadedDispute = Prisma.DisputeGetPayload<{
   include: typeof DISPUTE_INCLUDE;
 }>;
 
+const DISPUTE_MILESTONE_INCLUDE = {
+  contract: {
+    include: {
+      company: {
+        include: { user: { select: { id: true, stellarAddress: true } } },
+      },
+      freelancer: {
+        include: { user: { select: { id: true, stellarAddress: true } } },
+      },
+      escrow: true,
+    },
+  },
+} satisfies Prisma.MilestoneInclude;
+
+type DisputeMilestone = Prisma.MilestoneGetPayload<{
+  include: typeof DISPUTE_MILESTONE_INCLUDE;
+}>;
+
 @Injectable()
 export class DisputesService {
   constructor(
@@ -51,51 +70,37 @@ export class DisputesService {
     private readonly escrowService: EscrowService,
     private readonly notifications: NotificationsService,
     private readonly activityLogs: ActivityLogsService,
+    private readonly contracts: ContractsService,
   ) {}
 
   /**
-   * Either party opens a dispute over a milestone: the milestone pauses and
-   * the escrow funds stay locked on-chain (docs §5).
+   * Step 1: build the dispute XDR for the opening PARTY to sign (TW only lets a
+   * party open a dispute). null = simulated mode (the client skips signing).
+   */
+  async prepareOpen(user: AuthUser, dto: OpenDisputeDto) {
+    const milestone = await this.loadMilestoneForDispute(dto.milestoneId);
+    this.assertCanOpen(milestone, user);
+    const isCompany = milestone.contract.company.user.id === user.id;
+    const signerAddress = isCompany
+      ? milestone.contract.company.user.stellarAddress
+      : milestone.contract.freelancer.user.stellarAddress;
+    if (!signerAddress) {
+      throw new BadRequestException('Connect your wallet to open a dispute');
+    }
+    return this.escrowService.prepareDisputeOpen(
+      milestone.contract.escrow!,
+      milestone,
+      signerAddress,
+    );
+  }
+
+  /**
+   * Step 2: record the dispute after the party signed it on-chain. The milestone
+   * pauses and the escrow funds stay locked.
    */
   async open(user: AuthUser, dto: OpenDisputeDto) {
-    const milestone = await this.prisma.milestone.findUnique({
-      where: { id: dto.milestoneId },
-      include: {
-        contract: {
-          include: {
-            company: { select: { userId: true } },
-            freelancer: { select: { userId: true } },
-            escrow: true,
-          },
-        },
-      },
-    });
-    if (!milestone) throw new NotFoundException('Milestone not found');
-
-    const isParty =
-      milestone.contract.company.userId === user.id ||
-      milestone.contract.freelancer.userId === user.id;
-    if (!isParty)
-      throw new ForbiddenException('You are not a party to this contract');
-
-    if (milestone.contract.status !== 'active') {
-      throw new BadRequestException(
-        'Disputes can only be opened on active contracts',
-      );
-    }
-    if (['released', 'disputed'].includes(milestone.status)) {
-      throw new BadRequestException(
-        `Cannot dispute a milestone in status "${milestone.status}"`,
-      );
-    }
-    if (!milestone.contract.escrow) {
-      throw new BadRequestException('Contract has no funded escrow');
-    }
-
-    await this.escrowService.disputeMilestone(
-      milestone.contract.escrow,
-      milestone,
-    );
+    const milestone = await this.loadMilestoneForDispute(dto.milestoneId);
+    this.assertCanOpen(milestone, user);
 
     const [dispute] = await this.prisma.$transaction([
       this.prisma.dispute.create({
@@ -119,7 +124,7 @@ export class DisputesService {
     await this.notifications.notify(
       counterpartId,
       'dispute_opened',
-      `Disputa abierta sobre "${milestone.title}"`,
+      `Dispute opened on "${milestone.title}"`,
       { disputeId: dispute.id, milestoneId: milestone.id },
     );
     await this.activityLogs.record(user.id, 'dispute.opened', {
@@ -164,13 +169,13 @@ export class DisputesService {
     await this.notifications.notify(
       counterpartId,
       'dispute_opened',
-      `Nueva evidencia en la disputa de "${dispute.milestone.title}"`,
+      `New evidence on the dispute for "${dispute.milestone.title}"`,
       { disputeId: id },
     );
     return evidence;
   }
 
-  /** Escalate to the platform administrators (docs §5). */
+  /** Escalate to the platform administrators. */
   async escalate(id: string, user: AuthUser) {
     const dispute = await this.load(id);
     this.assertParticipant(dispute, user);
@@ -195,7 +200,7 @@ export class DisputesService {
         this.notifications.notify(
           admin.id,
           'dispute_escalated',
-          `Disputa escalada: "${updated.milestone.title}" (${updated.milestone.contract.title})`,
+          `Dispute escalated: "${updated.milestone.title}" (${updated.milestone.contract.title})`,
           { disputeId: id },
         ),
       ),
@@ -250,6 +255,27 @@ export class DisputesService {
       milestone.amount,
     );
 
+    // Atomic claim BEFORE the on-chain resolution: only the first resolver flips
+    // the dispute out of an open state (notIn resolved/closed). A concurrent
+    // second resolve claims 0 rows and aborts, so the escrow is settled once. If
+    // the on-chain call below throws, the exception propagates and the operator
+    // recovers a dispute marked resolved with no settlement.
+    const claimed = await this.prisma.dispute.updateMany({
+      where: { id, status: { notIn: ['resolved', 'closed'] } },
+      data: {
+        status: 'resolved',
+        outcome: dto.outcome,
+        freelancerAmount,
+        companyAmount,
+        resolution: dto.resolution,
+        resolvedById: user.id,
+        resolvedAt: new Date(),
+      },
+    });
+    if (claimed.count !== 1) {
+      throw new BadRequestException('Dispute is already resolved');
+    }
+
     const txHash = await this.escrowService.resolveMilestoneDispute(
       escrow,
       milestone,
@@ -261,27 +287,13 @@ export class DisputesService {
       },
     );
 
-    const [updated] = await this.prisma.$transaction([
-      this.prisma.dispute.update({
-        where: { id },
-        data: {
-          status: 'resolved',
-          outcome: dto.outcome,
-          freelancerAmount,
-          companyAmount,
-          resolution: dto.resolution,
-          resolvedById: user.id,
-          resolvedAt: new Date(),
-        },
-        include: DISPUTE_INCLUDE,
-      }),
-      this.prisma.milestone.update({
-        where: { id: milestone.id },
-        data: { status: 'released' },
-      }),
-    ]);
+    await this.prisma.milestone.update({
+      where: { id: milestone.id },
+      data: { status: 'released' },
+    });
+    const updated = await this.load(id);
 
-    const message = `Disputa de "${milestone.title}" resuelta: ${freelancerAmount.toString()} USDC al freelancer, ${companyAmount.toString()} USDC a la empresa`;
+    const message = `Dispute on "${milestone.title}" resolved: ${freelancerAmount.toString()} USDC to the freelancer, ${companyAmount.toString()} USDC to the company`;
     await Promise.all([
       this.notifications.notify(
         contract.company.userId,
@@ -308,15 +320,13 @@ export class DisputesService {
       txHash,
     });
 
-    await this.completeContractIfDone(contract.id, contract.title, {
-      companyUserId: contract.company.userId,
-      freelancerUserId: contract.freelancer.userId,
-    });
+    await this.contracts.completeIfAllReleased(contract.id);
     return updated;
   }
 
   // -- Queries -------------------------------------------------------------------
 
+  /** List disputes: all for administrators, only the user's own otherwise. */
   async list(user: AuthUser) {
     const where: Prisma.DisputeWhereInput =
       user.role === 'administrator'
@@ -348,6 +358,7 @@ export class DisputesService {
     });
   }
 
+  /** Fetch a single dispute, restricted to its participants (or any admin). */
   async findById(id: string, user: AuthUser) {
     const dispute = await this.load(id);
     if (user.role !== 'administrator') this.assertParticipant(dispute, user);
@@ -363,6 +374,38 @@ export class DisputesService {
     });
     if (!dispute) throw new NotFoundException('Dispute not found');
     return dispute;
+  }
+
+  private async loadMilestoneForDispute(
+    milestoneId: string,
+  ): Promise<DisputeMilestone> {
+    const milestone = await this.prisma.milestone.findUnique({
+      where: { id: milestoneId },
+      include: DISPUTE_MILESTONE_INCLUDE,
+    });
+    if (!milestone) throw new NotFoundException('Milestone not found');
+    return milestone;
+  }
+
+  private assertCanOpen(milestone: DisputeMilestone, user: AuthUser) {
+    const isParty =
+      milestone.contract.company.user.id === user.id ||
+      milestone.contract.freelancer.user.id === user.id;
+    if (!isParty)
+      throw new ForbiddenException('You are not a party to this contract');
+    if (milestone.contract.status !== 'active') {
+      throw new BadRequestException(
+        'Disputes can only be opened on active contracts',
+      );
+    }
+    if (['released', 'disputed'].includes(milestone.status)) {
+      throw new BadRequestException(
+        `Cannot dispute a milestone in status "${milestone.status}"`,
+      );
+    }
+    if (!milestone.contract.escrow) {
+      throw new BadRequestException('Contract has no funded escrow');
+    }
   }
 
   private assertParticipant(dispute: LoadedDispute, user: AuthUser) {
@@ -408,41 +451,4 @@ export class DisputesService {
     }
   }
 
-  /** Mirror of MilestonesService.completeContractIfDone for the dispute path. */
-  private async completeContractIfDone(
-    contractId: string,
-    contractTitle: string,
-    parties: { companyUserId: string; freelancerUserId: string },
-  ) {
-    const states = await this.prisma.milestone.findMany({
-      where: { contractId },
-      select: { status: true },
-    });
-    if (states.length === 0 || !states.every((m) => m.status === 'released'))
-      return;
-
-    await this.prisma.contract.update({
-      where: { id: contractId },
-      data: { status: 'completed', completedAt: new Date() },
-    });
-    const message = `Contrato "${contractTitle}" completado`;
-    await Promise.all([
-      this.notifications.notify(
-        parties.companyUserId,
-        'contract_accepted',
-        message,
-        {
-          contractId,
-        },
-      ),
-      this.notifications.notify(
-        parties.freelancerUserId,
-        'contract_accepted',
-        message,
-        {
-          contractId,
-        },
-      ),
-    ]);
-  }
 }

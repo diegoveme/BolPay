@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@bolpay/shared": "workspace:*",
+    "@creit.tech/stellar-wallets-kit": "^2.5.0",
     "@pollar/core": "^0.8.0",
     "@pollar/react": "^0.8.0",
     "@tanstack/react-query": "^5.62.7",

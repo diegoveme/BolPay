@@ -3,8 +3,8 @@ import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 
 /**
- * Automatic audit trail of platform events (docs/proyecto_overview.md §8).
- * Recording never throws: a failed log must not break the business operation.
+ * Automatic audit trail of platform events. Recording never throws: a failed
+ * log must not break the business operation.
  */
 @Injectable()
 export class ActivityLogsService {
@@ -12,6 +12,7 @@ export class ActivityLogsService {
 
   constructor(private readonly prisma: PrismaService) {}
 
+  /** Persist an audit entry for a user action; swallows errors by design. */
   async record(
     userId: string,
     event: string,
@@ -28,6 +29,7 @@ export class ActivityLogsService {
     }
   }
 
+  /** List a single user's most recent audit entries. */
   listForUser(userId: string) {
     return this.prisma.activityLog.findMany({
       where: { userId },

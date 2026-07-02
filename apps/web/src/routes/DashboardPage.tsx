@@ -4,9 +4,13 @@ import type { ActivityLog } from '@bolpay/shared';
 import { useAuth } from '@/auth/AuthContext';
 import { api } from '@/lib/api';
 import type { ContractListItem } from '@/lib/types';
-import { formatDateTime, formatUSDC, roleLabel } from '@/lib/format';
+import { activityLabel, formatDateTime, formatUSDC, roleLabel } from '@/lib/format';
 import { Card, EmptyState, PageHeader, Spinner, Stat } from '@/components/ui';
 
+/**
+ * Landing dashboard: greets the user, shows contract summary stats (for roles
+ * that manage contracts), recent contracts, and a recent activity feed.
+ */
 export function DashboardPage() {
   const { user } = useAuth();
   const managesContracts = user?.role !== 'fixed_employee';
@@ -30,30 +34,30 @@ export function DashboardPage() {
   return (
     <>
       <PageHeader
-        title={`Hola, ${user?.name ?? user?.email}`}
-        subtitle={`Panel de ${roleLabel[user!.role].toLowerCase()} — pagos en USDC sobre Stellar`}
+        title={`Hi, ${user?.name ?? user?.email}`}
+        subtitle={`${roleLabel[user!.role]} dashboard · USDC payments on Stellar`}
       />
 
       {managesContracts && (
         <div className="stats-grid">
-          <Stat label="Contratos activos" value={active.length} />
-          <Stat label="Pendientes de aceptación" value={pending.length} />
-          <Stat label="Completados" value={completed.length} />
-          <Stat label="USDC en escrow (activos)" value={formatUSDC(lockedAmount)} />
+          <Stat label="Active contracts" value={active.length} />
+          <Stat label="Pending acceptance" value={pending.length} />
+          <Stat label="Completed" value={completed.length} />
+          <Stat label="USDC in escrow (active)" value={formatUSDC(lockedAmount)} />
         </div>
       )}
 
       {managesContracts && (
-        <Card title="Contratos recientes">
+        <Card title="Recent contracts">
           {isLoading ? (
             <Spinner />
           ) : !contracts || contracts.length === 0 ? (
             <EmptyState
-              title="Aún no hay contratos"
+              title="No contracts yet"
               hint={
                 user?.role === 'company'
-                  ? 'Crea tu primer contrato desde la sección Contratos.'
-                  : 'Cuando una empresa te envíe un contrato aparecerá aquí.'
+                  ? 'Create your first contract from the Contracts section.'
+                  : 'When a company sends you a contract it will show up here.'
               }
             />
           ) : (
@@ -80,15 +84,15 @@ export function DashboardPage() {
         </Card>
       )}
 
-      <Card title="Actividad reciente">
+      <Card title="Recent activity">
         {!activity || activity.length === 0 ? (
-          <EmptyState title="Sin actividad registrada todavía" />
+          <EmptyState title="No activity recorded yet" />
         ) : (
           <table className="table">
             <tbody>
               {activity.slice(0, 8).map((log) => (
                 <tr key={log.id}>
-                  <td className="mono">{log.event}</td>
+                  <td>{activityLabel(log.event)}</td>
                   <td className="muted">{formatDateTime(log.createdAt)}</td>
                 </tr>
               ))}

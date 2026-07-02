@@ -1,5 +1,7 @@
 gradle-wrapper.jar
 /.gradle
+# Ignore nested Gradle caches everywhere (e.g. android/app/.gradle), not just the android/ root.
+.gradle/
 /captures/
 /gradlew
 /gradlew.bat

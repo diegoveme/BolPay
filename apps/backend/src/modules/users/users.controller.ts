@@ -8,8 +8,12 @@ import {
   Patch,
   Post,
   Query,
+  UploadedFile,
+  UseInterceptors,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { ApiBearerAuth, ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import type { AuthUser } from '../../common/types/auth';
@@ -26,6 +30,7 @@ import { UsersService } from './users.service';
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
+  /** Update the authenticated company's profile. */
   @Patch('me/company-profile')
   @Roles('company')
   updateCompanyProfile(
@@ -35,6 +40,7 @@ export class UsersController {
     return this.usersService.updateCompanyProfile(user, dto);
   }
 
+  /** Update the authenticated freelancer's profile. */
   @Patch('me/freelancer-profile')
   @Roles('freelancer')
   updateFreelancerProfile(
@@ -44,24 +50,52 @@ export class UsersController {
     return this.usersService.updateFreelancerProfile(user, dto);
   }
 
-  @Get('freelancers')
-  @Roles('company', 'administrator')
-  listFreelancers(@Query('search') search?: string) {
-    return this.usersService.listFreelancers(search);
+  /** Upload an avatar/logo image and return its public URL. */
+  @Post('me/avatar')
+  @Throttle({ default: { ttl: 60000, limit: 10 } })
+  @ApiOperation({ summary: 'Upload an avatar/logo image (max 2MB)' })
+  @ApiConsumes('multipart/form-data')
+  @UseInterceptors(
+    FileInterceptor('file', { limits: { fileSize: 2 * 1024 * 1024 } }),
+  )
+  uploadAvatar(
+    @CurrentUser() user: AuthUser,
+    @UploadedFile()
+    file: {
+      originalname: string;
+      mimetype: string;
+      size: number;
+      buffer: Buffer;
+    },
+  ) {
+    return this.usersService.uploadAvatar(user, file);
   }
 
+  /** List freelancers visible to the caller, optionally filtered by search. */
+  @Get('freelancers')
+  @Roles('company', 'administrator')
+  listFreelancers(
+    @CurrentUser() user: AuthUser,
+    @Query('search') search?: string,
+  ) {
+    return this.usersService.listFreelancers(user, search);
+  }
+
+  /** List fixed employees, optionally filtered by search. */
   @Get('employees')
   @Roles('company', 'administrator')
   listEmployees(@Query('search') search?: string) {
     return this.usersService.listEmployees(search);
   }
 
+  /** List every platform user (administrators). */
   @Get()
   @Roles('administrator')
   listAll() {
     return this.usersService.listAll();
   }
 
+  /** Send an invitation by email. */
   @Post('invitations')
   @Roles('company', 'administrator')
   createInvitation(
@@ -71,12 +105,14 @@ export class UsersController {
     return this.usersService.createInvitation(user, dto);
   }
 
+  /** List invitations visible to the caller. */
   @Get('invitations')
   @Roles('company', 'administrator')
   listInvitations(@CurrentUser() user: AuthUser) {
     return this.usersService.listInvitations(user);
   }
 
+  /** Revoke a pending invitation by id. */
   @Delete('invitations/:id')
   @Roles('company', 'administrator')
   revokeInvitation(
@@ -86,6 +122,7 @@ export class UsersController {
     return this.usersService.revokeInvitation(user, id);
   }
 
+  /** Fetch a single user by id (administrators). */
   @Get(':id')
   @Roles('administrator')
   findById(@Param('id', ParseUUIDPipe) id: string) {

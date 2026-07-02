@@ -62,11 +62,15 @@ export class TrustlessWorkAdapter implements EscrowChainAdapter {
       title: params.title,
       description: params.description || params.title,
       roles: {
-        approver: this.platformAddress,
-        serviceProvider: this.platformAddress,
+        // Non-custodial: the company approves/releases, the freelancer delivers.
+        // The platform is only the (fund-less) dispute arbiter + fee address.
+        approver: params.roles?.approver ?? this.platformAddress,
+        serviceProvider: params.roles?.serviceProvider ?? this.platformAddress,
         platformAddress: this.platformAddress,
-        releaseSigner: this.platformAddress,
-        disputeResolver: this.platformAddress,
+        releaseSigner: params.roles?.releaseSigner ?? this.platformAddress,
+        // Dispute resolution is mutual between the parties, executed by the
+        // company - the platform is NOT an arbiter.
+        disputeResolver: params.roles?.disputeResolver ?? this.platformAddress,
       },
       platformFee: 0,
       milestones: params.milestones.map((m) => ({
@@ -86,15 +90,21 @@ export class TrustlessWorkAdapter implements EscrowChainAdapter {
     return { contractId: result.contractId, txHash: result.txHash };
   }
 
-  async fundEscrow(contractId: string, amount: string): Promise<ChainTxResult> {
+  /** Non-custodial: return the unsigned fund XDR for the funder to sign. */
+  async buildFundXdr(
+    contractId: string,
+    amount: string,
+    signerAddress: string,
+  ): Promise<string | null> {
     const { unsignedTransaction } = await this.post<{
       unsignedTransaction: string;
     }>('/escrow/multi-release/fund-escrow', {
       contractId,
-      signer: this.platformAddress,
-      amount,
+      signer: signerAddress,
+      // TW validates amount as a NUMBER (not a string), so coerce it.
+      amount: Number(amount),
     });
-    return this.signAndSend(unsignedTransaction);
+    return unsignedTransaction;
   }
 
   async markMilestoneDone(
@@ -112,6 +122,25 @@ export class TrustlessWorkAdapter implements EscrowChainAdapter {
       serviceProvider: this.platformAddress,
     });
     return this.signAndSend(unsignedTransaction);
+  }
+
+  /** Non-custodial: unsigned change-status XDR for the freelancer to sign. */
+  async buildChangeStatusXdr(
+    contractId: string,
+    milestoneIndex: number,
+    evidence: string,
+    serviceProvider: string,
+  ): Promise<string | null> {
+    const { unsignedTransaction } = await this.post<{
+      unsignedTransaction: string;
+    }>('/escrow/multi-release/change-milestone-status', {
+      contractId,
+      milestoneIndex: String(milestoneIndex),
+      newStatus: 'Completed',
+      newEvidence: evidence || 'delivered',
+      serviceProvider,
+    });
+    return unsignedTransaction;
   }
 
   async approveMilestone(
@@ -142,18 +171,52 @@ export class TrustlessWorkAdapter implements EscrowChainAdapter {
     return this.signAndSend(unsignedTransaction);
   }
 
-  async disputeMilestone(
+  /** Non-custodial: unsigned approve XDR for the company (approver) to sign. */
+  async buildApproveXdr(
     contractId: string,
     milestoneIndex: number,
-  ): Promise<ChainTxResult> {
+    approver: string,
+  ): Promise<string | null> {
+    const { unsignedTransaction } = await this.post<{
+      unsignedTransaction: string;
+    }>('/escrow/multi-release/approve-milestone', {
+      contractId,
+      milestoneIndex: String(milestoneIndex),
+      approver,
+    });
+    return unsignedTransaction;
+  }
+
+  /** Non-custodial: unsigned release XDR for the company (release signer) to sign. */
+  async buildReleaseXdr(
+    contractId: string,
+    milestoneIndex: number,
+    releaseSigner: string,
+  ): Promise<string | null> {
+    const { unsignedTransaction } = await this.post<{
+      unsignedTransaction: string;
+    }>('/escrow/multi-release/release-milestone-funds', {
+      contractId,
+      milestoneIndex: String(milestoneIndex),
+      releaseSigner,
+    });
+    return unsignedTransaction;
+  }
+
+  /** Non-custodial: unsigned dispute XDR for a party (company/freelancer). */
+  async buildDisputeXdr(
+    contractId: string,
+    milestoneIndex: number,
+    signer: string,
+  ): Promise<string | null> {
     const { unsignedTransaction } = await this.post<{
       unsignedTransaction: string;
     }>('/escrow/multi-release/dispute-escrow', {
       contractId,
       milestoneIndex: String(milestoneIndex),
-      signer: this.platformAddress,
+      signer,
     });
-    return this.signAndSend(unsignedTransaction);
+    return unsignedTransaction;
   }
 
   async resolveDispute(
@@ -170,6 +233,25 @@ export class TrustlessWorkAdapter implements EscrowChainAdapter {
       distributions,
     });
     return this.signAndSend(unsignedTransaction);
+  }
+
+  /** Broadcast a signed XDR (from a self-custodial wallet) through TW. */
+  async submitSigned(signedXdr: string): Promise<string> {
+    const result = await this.post<Record<string, unknown>>(
+      '/helper/send-transaction',
+      { signedXdr },
+    );
+    const fromResponse =
+      (result.hash as string | undefined) ??
+      (result.txHash as string | undefined);
+    if (fromResponse) return fromResponse;
+    try {
+      return TransactionBuilder.fromXDR(signedXdr, this.networkPassphrase)
+        .hash()
+        .toString('hex');
+    } catch {
+      return '';
+    }
   }
 
   // -- HTTP / signing helpers --------------------------------------------------

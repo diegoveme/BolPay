@@ -1,4 +1,5 @@
-/// Notificación del usuario.
+/// User notification. Its `data` payload can carry entity ids used for
+/// deep linking (disputeId, contractId, payrollId).
 class NotificationItem {
   const NotificationItem({
     required this.id,
@@ -15,6 +16,19 @@ class NotificationItem {
   final bool read;
   final Map<String, dynamic>? data;
   final String? createdAt;
+
+  String? get contractId => data?['contractId']?.toString();
+  String? get disputeId => data?['disputeId']?.toString();
+  String? get payrollId => data?['payrollId']?.toString();
+
+  /// In-app route this notification links to, if any. Dispute wins over
+  /// contract, which wins over payroll (web parity).
+  String? get deepLink {
+    if (disputeId != null) return '/disputes/$disputeId';
+    if (contractId != null) return '/contracts/$contractId';
+    if (payrollId != null) return '/payrolls/$payrollId';
+    return null;
+  }
 
   NotificationItem copyWith({bool? read}) {
     return NotificationItem(
@@ -33,7 +47,9 @@ class NotificationItem {
       type: (json['type'] ?? '').toString(),
       message: (json['message'] ?? '').toString(),
       read: json['read'] == true,
-      data: json['data'] as Map<String, dynamic>?,
+      data: json['data'] is Map<String, dynamic>
+          ? json['data'] as Map<String, dynamic>
+          : null,
       createdAt: json['createdAt'] as String?,
     );
   }

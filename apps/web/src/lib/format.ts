@@ -1,30 +1,33 @@
-import type {
-  ContractStatus,
-  DisputeStatus,
-  MilestoneStatus,
-  PayrollStatus,
-  UserRole,
-} from '@bolpay/shared';
+/**
+ * Pure value formatters for money, dates and addresses. Also re-exports the
+ * domain label/tone maps (./labels) and URL helpers (./links) so existing
+ * `@/lib/format` imports across the app keep working unchanged.
+ */
+export * from './labels';
+export * from './links';
 
+/** Format a USDC amount with two decimals, or a dot placeholder when empty. */
 export function formatUSDC(amount: string | number | null | undefined): string {
-  if (amount === null || amount === undefined) return '—';
+  if (amount === null || amount === undefined) return '·';
   const value = typeof amount === 'string' ? Number(amount) : amount;
   if (Number.isNaN(value)) return String(amount);
-  return `${value.toLocaleString('es-BO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDC`;
+  return `${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDC`;
 }
 
+/** Format an ISO date as a short, human-readable date (no time). */
 export function formatDate(iso: string | null | undefined): string {
-  if (!iso) return '—';
-  return new Date(iso).toLocaleDateString('es-BO', {
+  if (!iso) return '·';
+  return new Date(iso).toLocaleDateString('en-US', {
     year: 'numeric',
     month: 'short',
     day: 'numeric',
   });
 }
 
+/** Format an ISO date as a short date plus the time of day. */
 export function formatDateTime(iso: string | null | undefined): string {
-  if (!iso) return '—';
-  return new Date(iso).toLocaleString('es-BO', {
+  if (!iso) return '·';
+  return new Date(iso).toLocaleString('en-US', {
     year: 'numeric',
     month: 'short',
     day: 'numeric',
@@ -33,89 +36,8 @@ export function formatDateTime(iso: string | null | undefined): string {
   });
 }
 
+/** Truncate a Stellar address to its first and last six characters. */
 export function shortAddress(address: string | null | undefined): string {
-  if (!address) return '—';
+  if (!address) return '·';
   return `${address.slice(0, 6)}…${address.slice(-6)}`;
-}
-
-export const roleLabel: Record<UserRole, string> = {
-  company: 'Empresa',
-  freelancer: 'Freelancer',
-  fixed_employee: 'Empleado fijo',
-  administrator: 'Administrador',
-};
-
-export const contractStatusLabel: Record<ContractStatus, string> = {
-  draft: 'Borrador',
-  pending_acceptance: 'Pendiente de aceptación',
-  changes_requested: 'Cambios solicitados',
-  accepted: 'Aceptado',
-  active: 'Activo',
-  completed: 'Completado',
-  rejected: 'Rechazado',
-};
-
-export const contractStatusTone: Record<ContractStatus, string> = {
-  draft: 'neutral',
-  pending_acceptance: 'warning',
-  changes_requested: 'warning',
-  accepted: 'info',
-  active: 'info',
-  completed: 'success',
-  rejected: 'danger',
-};
-
-export const milestoneStatusLabel: Record<MilestoneStatus, string> = {
-  pending: 'Pendiente',
-  submitted: 'Entregado',
-  in_review: 'En revisión',
-  approved: 'Aprobado',
-  released: 'Pagado',
-  disputed: 'En disputa',
-};
-
-export const milestoneStatusTone: Record<MilestoneStatus, string> = {
-  pending: 'neutral',
-  submitted: 'warning',
-  in_review: 'warning',
-  approved: 'info',
-  released: 'success',
-  disputed: 'danger',
-};
-
-export const disputeStatusLabel: Record<DisputeStatus, string> = {
-  open: 'Abierta',
-  under_review: 'En revisión',
-  escalated: 'Escalada',
-  resolved: 'Resuelta',
-  closed: 'Cerrada',
-};
-
-export const disputeStatusTone: Record<DisputeStatus, string> = {
-  open: 'danger',
-  under_review: 'warning',
-  escalated: 'warning',
-  resolved: 'success',
-  closed: 'neutral',
-};
-
-export const payrollStatusLabel: Record<PayrollStatus, string> = {
-  draft: 'Borrador',
-  funded: 'Fondeada',
-  active: 'Activa',
-  paused: 'Pausada',
-  completed: 'Archivada',
-};
-
-export const payrollStatusTone: Record<PayrollStatus, string> = {
-  draft: 'neutral',
-  funded: 'info',
-  active: 'success',
-  paused: 'warning',
-  completed: 'neutral',
-};
-
-export function stellarExpertTxUrl(hash: string): string | null {
-  if (hash.startsWith('SIM')) return null;
-  return `https://stellar.expert/explorer/testnet/tx/${hash}`;
 }

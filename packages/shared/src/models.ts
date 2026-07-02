@@ -37,16 +37,11 @@ export interface User {
   stellarAddress?: string | null;
   /** Pollar wallet id (wal_...) when known; used for server-side operations. */
   pollarWalletId?: string | null;
+  /** Email ownership confirmed via Resend; gates sensitive actions. */
+  emailVerified: boolean;
   createdAt: ISODateString;
   companyProfile?: CompanyProfile | null;
   freelancerProfile?: FreelancerProfile | null;
-}
-
-export interface Wallet {
-  id: string;
-  userId: string;
-  stellarAddress: string;
-  isPrimary: boolean;
 }
 
 export interface CompanyProfile {
@@ -54,6 +49,11 @@ export interface CompanyProfile {
   userId: string;
   name: string;
   description?: string | null;
+  location?: string | null;
+  website?: string | null;
+  industry?: string | null;
+  values?: string | null;
+  avatarUrl?: string | null;
 }
 
 export interface FreelancerProfile {
@@ -61,6 +61,13 @@ export interface FreelancerProfile {
   userId: string;
   displayName: string;
   headline?: string | null;
+  bio?: string | null;
+  skills?: string[];
+  location?: string | null;
+  website?: string | null;
+  linkedin?: string | null;
+  github?: string | null;
+  avatarUrl?: string | null;
 }
 
 export interface Invitation {

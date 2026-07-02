@@ -1,156 +1,98 @@
-# Escrow and Payments
+# Escrow & Payments
 
-This document describes how BolPay locks and releases funds through Trustless Work
-on the Stellar network. It covers the escrow lifecycle, the milestone payment flow,
-the dispute resolution flow, and the payroll distribution flow. All settlement is
-performed in USDC, and every operation produces a Stellar transaction hash that is
-stored as the source of truth.
+All value in BolPay settles in **USDC**, a native Stellar asset, through
+decentralized escrow provided by [Trustless Work](https://www.trustlesswork.com/).
+This document describes the escrow model, the two runtime modes, and the settlement
+flows for contracts, disputes, and payroll.
 
-## 1. Principles
+## 1. Escrow Model
 
-- **No custody of keys.** BolPay never stores private keys. Funding and release are
-  authorized by the user's connected wallet; the backend only orchestrates the
-  operations through Trustless Work.
-- **On-chain source of truth.** A settlement is considered final only when its
-  Stellar transaction is confirmed. The transaction hash is recorded against the
-  corresponding domain entity.
-- **Escrow as a Service.** Trustless Work provides the escrow primitives (create,
-  fund, release, refund), removing the need to author and audit custom contracts.
+A BolPay escrow is a Trustless Work (Soroban) contract that locks funds until
+release conditions are met. Two escrow types share the same abstraction:
 
-## 2. Escrow Lifecycle
+- **Contract escrow** - multi-release: each milestone is an independently releasable
+  tranche.
+- **Payroll escrow** - funds a scheduled distribution to multiple recipients.
 
-```mermaid
-stateDiagram-v2
-    [*] --> Created: Contract accepted / Payroll defined
-    Created --> Funded: Company funds from wallet
-    Funded --> Releasing: Milestone approved / Payroll executes
-    Releasing --> Released: Stellar confirms release
-    Released --> Closed: All funds released
-    Funded --> Refunding: Dispute resolved as refund
-    Refunding --> Closed: Stellar confirms refund
-    Closed --> [*]
-```
+The backend stores a reference to each escrow (`trustlessWorkId`) and records every
+on-chain operation as a `Transaction` with its Stellar hash, giving a verifiable
+link between the database and the ledger.
 
-| State | Meaning |
+## 2. Runtime Modes
+
+Settlement is hidden behind an adapter (`EscrowChainAdapter`) selected by the
+`ESCROW_MODE` environment variable:
+
+| Mode | Behavior |
 |---|---|
-| `Created` | The escrow exists in Trustless Work but holds no funds. |
-| `Funded` | The company has funded the escrow from its wallet. |
-| `Releasing` | A release has been requested and is awaiting on-chain confirmation. |
-| `Released` | Funds have been released to the recipient and confirmed on Stellar. |
-| `Refunding` | A refund has been requested as part of a dispute resolution. |
-| `Closed` | The escrow has no remaining funds and is finalized. |
+| `simulated` (default) | In-memory escrow; the full product flow works without touching the chain. Used for local development and functional testing. |
+| `trustless_work` | Real multi-release escrows on the **Stellar Testnet** via the Trustless Work API. Requires `TRUSTLESS_WORK_API_KEY` and a funded platform signer. |
 
-## 3. Milestone Payment Flow
+Both modes expose the same operations (`deploy`, `fund`, `release`, `refund`,
+`distribute`), so application logic is identical regardless of mode.
 
-This is the primary flow for freelance contracts: funds are locked at acceptance
-and released per milestone upon approval.
+## 3. Contract Settlement
 
 ```mermaid
 sequenceDiagram
-    actor Company
-    actor Freelancer
+    participant C as Company
     participant API as Backend
-    participant TW as Trustless Work
-    participant ST as Stellar
+    participant E as Escrow (Trustless Work)
+    participant F as Freelancer
 
-    Freelancer->>API: Accept contract
-    API->>TW: Create escrow (type = contract)
-    Company->>API: Authorize funding
-    API->>TW: Fund escrow
-    TW->>ST: Submit funding transaction
-    ST-->>TW: Confirmed (hash)
-    TW-->>API: Funded + tx hash
-    API->>API: Contract = active, store hash
-
-    Freelancer->>API: Submit deliverable
-    Company->>API: Approve milestone
-    API->>TW: Release milestone funds
-    TW->>ST: Submit release transaction
-    ST-->>TW: Confirmed (hash)
-    TW-->>API: Released + tx hash
-    API->>API: Milestone = released, store hash
-    API->>Freelancer: Notify payment released
+    F->>API: Accept contract
+    API->>E: Deploy multi-release escrow (one tranche per milestone)
+    C->>API: Fund escrow (total amount)
+    API->>E: Fund
+    E-->>API: funded
+    Note over API: Funds locked
+    F->>API: Submit deliverable
+    C->>API: Approve milestone
+    API->>E: Release milestone tranche
+    E-->>F: USDC to freelancer wallet
+    Note over API: Repeat per milestone; contract completes when all released
 ```
 
-## 4. Dispute Resolution Flow
+Milestone receivers are the freelancers' Pollar wallets, so released funds land
+directly in their accounts.
 
-When a dispute is opened, the affected milestone is paused and its funds remain
-locked until the dispute is resolved. The resolution determines whether funds are
-released to the freelancer, refunded to the company, or split.
+## 4. Dispute Settlement
+
+Opening a dispute on a milestone pauses its release and keeps the funds locked.
+Neither party can release unilaterally. Resolution can be:
+
+- **`release_to_freelancer`** - the milestone tranche is released to the freelancer.
+- **`refund_to_company`** - the tranche is refunded to the company.
+- **`split`** - the tranche is divided between both parties by agreed amounts.
+
+Disputes resolve by mutual agreement, or are escalated for platform review when no
+agreement is reached. The agreed outcome is then executed on the escrow.
+
+## 5. Payroll Distribution
 
 ```mermaid
 sequenceDiagram
-    actor Party as Company / Freelancer
-    actor Admin as Administrator
+    participant C as Company
     participant API as Backend
-    participant TW as Trustless Work
-    participant ST as Stellar
+    participant S as Scheduler
+    participant E as Escrow
+    participant R as Recipients
 
-    Party->>API: Open dispute on milestone
-    API->>API: Pause milestone, lock funds
-    Party->>API: Attach evidence and comments
-
-    alt Mutual resolution
-        Party->>API: Agree on resolution
-    else Escalation
-        API->>Admin: Escalate dispute
-        Admin->>API: Decide resolution
-    end
-
-    API->>TW: Execute resolution (release / refund / split)
-    TW->>ST: Submit settlement transaction(s)
-    ST-->>TW: Confirmed (hash)
-    TW-->>API: Settled + tx hash
-    API->>API: Dispute = resolved, store hash
+    C->>API: Create payroll + recipients
+    C->>API: Fund payroll escrow (total)
+    API->>E: Fund
+    Note over S: On the scheduled date
+    S->>API: Trigger execution
+    API->>E: Distribute to each recipient
+    E-->>R: USDC per recipient
+    API-->>API: Record PayrollExecution + Transactions
 ```
 
-## 5. Payroll Distribution Flow
+Each execution records a `PayrollExecution` and one `Transaction` per recipient with
+its Stellar hash. Failed or partial executions are tracked so they can be retried.
 
-Payroll reuses the escrow infrastructure for recurring distributions. The escrow is
-funded ahead of time, and the scheduler distributes payments automatically on the
-configured date.
+## 6. Precision
 
-```mermaid
-sequenceDiagram
-    actor Company
-    participant SCHED as Payroll Scheduler
-    participant API as Backend
-    participant TW as Trustless Work
-    participant ST as Stellar
-    actor Recipient as Recipients
-
-    Company->>API: Create payroll + add recipients
-    Company->>API: Fund payroll escrow
-    API->>TW: Fund escrow (type = payroll)
-    TW->>ST: Submit funding transaction
-    ST-->>TW: Confirmed (hash)
-
-    Note over SCHED: Scheduled date reached
-    SCHED->>API: Trigger payroll execution
-    API->>TW: Distribute to each recipient
-    TW->>ST: Submit distribution transactions
-    ST-->>TW: Confirmed (hashes)
-    TW-->>API: Distribution results + hashes
-    API->>API: Record execution, store hashes
-    API->>Recipient: Notify payment received
-```
-
-## 6. Failure Handling and Idempotency
-
-- **Asynchronous confirmation.** The interface acknowledges actions immediately,
-  while settlement is confirmed asynchronously. Domain state that depends on
-  settlement is finalized only after on-chain confirmation.
-- **Retries.** Transient failures from Trustless Work or Stellar are retried. The
-  backend surfaces actionable errors when an operation cannot complete.
-- **Idempotent payroll.** Payroll execution is designed so that retrying after a
-  partial failure does not double-pay recipients. Each recipient distribution is
-  tracked individually, and a failed run can be marked `partial` and safely resumed.
-
-## 7. Networks and Assets
-
-| Aspect | Value |
-|---|---|
-| Settlement asset | USDC |
-| Network (development) | Stellar Testnet |
-| Smart contract platform | Soroban (via Trustless Work) |
-| Source of truth | Stellar transaction hash per operation |
+Amounts use 7 decimal places throughout (`Decimal(20, 7)`), matching Stellar's
+native asset precision, to avoid rounding drift between the database and on-chain
+operations.

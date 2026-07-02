@@ -24,9 +24,25 @@ export class SimulatedChainAdapter implements EscrowChainAdapter {
     return Promise.resolve({ contractId, txHash: this.fakeHash() });
   }
 
-  fundEscrow(contractId: string, amount: string): Promise<ChainTxResult> {
-    this.logger.log(`[simulated] fund ${contractId} with ${amount} USDC`);
-    return Promise.resolve({ txHash: this.fakeHash() });
+  buildFundXdr(): Promise<string | null> {
+    // No real chain → no signature needed; the caller records a simulated tx.
+    return Promise.resolve(null);
+  }
+
+  buildChangeStatusXdr(): Promise<string | null> {
+    return Promise.resolve(null);
+  }
+
+  buildApproveXdr(): Promise<string | null> {
+    return Promise.resolve(null);
+  }
+
+  buildReleaseXdr(): Promise<string | null> {
+    return Promise.resolve(null);
+  }
+
+  buildDisputeXdr(): Promise<string | null> {
+    return Promise.resolve(null);
   }
 
   markMilestoneDone(
@@ -59,16 +75,6 @@ export class SimulatedChainAdapter implements EscrowChainAdapter {
     return Promise.resolve({ txHash: this.fakeHash() });
   }
 
-  disputeMilestone(
-    contractId: string,
-    milestoneIndex: number,
-  ): Promise<ChainTxResult> {
-    this.logger.log(
-      `[simulated] dispute milestone ${milestoneIndex} on ${contractId}`,
-    );
-    return Promise.resolve({ txHash: this.fakeHash() });
-  }
-
   resolveDispute(
     contractId: string,
     milestoneIndex: number,
@@ -78,6 +84,11 @@ export class SimulatedChainAdapter implements EscrowChainAdapter {
       `[simulated] resolve milestone ${milestoneIndex} on ${contractId}: ${JSON.stringify(distributions)}`,
     );
     return Promise.resolve({ txHash: this.fakeHash() });
+  }
+
+  submitSigned(): Promise<string> {
+    // No real chain in simulated mode; nothing to broadcast.
+    return Promise.resolve(this.fakeHash());
   }
 
   private fakeHash(): string {

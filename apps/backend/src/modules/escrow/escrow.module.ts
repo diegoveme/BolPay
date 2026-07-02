@@ -1,6 +1,7 @@
 import { Module, type Provider } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { EscrowService } from './escrow.service';
+import { TrustlineService } from './trustline.service';
 import { EscrowController } from './escrow.controller';
 import { ESCROW_CHAIN_ADAPTER } from './chain/escrow-chain.adapter';
 import { SimulatedChainAdapter } from './chain/simulated.adapter';
@@ -22,7 +23,7 @@ const chainAdapterProvider: Provider = {
 
 @Module({
   controllers: [EscrowController],
-  providers: [EscrowService, chainAdapterProvider],
+  providers: [EscrowService, TrustlineService, chainAdapterProvider],
   exports: [EscrowService],
 })
 export class EscrowModule {}

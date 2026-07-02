@@ -1,14 +1,10 @@
 import 'package:flutter/material.dart';
 
-/// Tipo de entidad cuyo estado se muestra.
-enum StatusKind { contract, milestone }
+import '../theme.dart';
 
-/// Badge de estado con color y etiqueta en español.
-///
-/// Estados de contrato: draft, pending_acceptance, changes_requested,
-/// accepted, active, completed, rejected.
-/// Estados de milestone: pending, submitted, in_review, approved,
-/// released, disputed.
+/// Pill badge with a tinted background and a solid semantic text color,
+/// replicating the web `Badge`. The label and tone come from the shared
+/// status maps in `theme.dart`.
 class StatusBadge extends StatelessWidget {
   const StatusBadge({super.key, required this.status, required this.kind});
 
@@ -18,108 +14,65 @@ class StatusBadge extends StatelessWidget {
   const StatusBadge.milestone(String status, {Key? key})
     : this(key: key, status: status, kind: StatusKind.milestone);
 
+  const StatusBadge.dispute(String status, {Key? key})
+    : this(key: key, status: status, kind: StatusKind.dispute);
+
+  const StatusBadge.payroll(String status, {Key? key})
+    : this(key: key, status: status, kind: StatusKind.payroll);
+
+  const StatusBadge.escrow(String status, {Key? key})
+    : this(key: key, status: status, kind: StatusKind.escrow);
+
+  const StatusBadge.invitation(String status, {Key? key})
+    : this(key: key, status: status, kind: StatusKind.invitation);
+
   final String status;
   final StatusKind kind;
 
-  /// Color asociado a cada estado (expuesto para tests y otros widgets).
-  static Color colorFor(String status, StatusKind kind) {
-    switch (kind) {
-      case StatusKind.contract:
-        switch (status) {
-          case 'draft':
-            return Colors.blueGrey;
-          case 'pending_acceptance':
-            return Colors.orange;
-          case 'changes_requested':
-            return Colors.deepOrange;
-          case 'accepted':
-            return Colors.teal;
-          case 'active':
-            return const Color(0xFF1B5FFF);
-          case 'completed':
-            return Colors.green;
-          case 'rejected':
-            return Colors.red;
-          default:
-            return Colors.grey;
-        }
-      case StatusKind.milestone:
-        switch (status) {
-          case 'pending':
-            return Colors.blueGrey;
-          case 'submitted':
-            return const Color(0xFF1B5FFF);
-          case 'in_review':
-            return Colors.orange;
-          case 'approved':
-            return Colors.teal;
-          case 'released':
-            return Colors.green;
-          case 'disputed':
-            return Colors.red;
-          default:
-            return Colors.grey;
-        }
-    }
+  @override
+  Widget build(BuildContext context) {
+    final tones = AppTones.of(context);
+    final tone = statusTone(kind, status);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+      decoration: BoxDecoration(
+        color: tones.background(tone),
+        borderRadius: BorderRadius.circular(AppTheme.radiusPill),
+      ),
+      child: Text(
+        statusLabel(kind, status),
+        style: TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+          color: tones.color(tone),
+        ),
+      ),
+    );
   }
+}
 
-  /// Etiqueta en español para cada estado.
-  static String labelFor(String status, StatusKind kind) {
-    switch (kind) {
-      case StatusKind.contract:
-        switch (status) {
-          case 'draft':
-            return 'Borrador';
-          case 'pending_acceptance':
-            return 'Pendiente de aceptación';
-          case 'changes_requested':
-            return 'Cambios solicitados';
-          case 'accepted':
-            return 'Aceptado';
-          case 'active':
-            return 'Activo';
-          case 'completed':
-            return 'Completado';
-          case 'rejected':
-            return 'Rechazado';
-          default:
-            return status;
-        }
-      case StatusKind.milestone:
-        switch (status) {
-          case 'pending':
-            return 'Pendiente';
-          case 'submitted':
-            return 'Entregado';
-          case 'in_review':
-            return 'En revisión';
-          case 'approved':
-            return 'Aprobado';
-          case 'released':
-            return 'Pagado';
-          case 'disputed':
-            return 'En disputa';
-          default:
-            return status;
-        }
-    }
-  }
+/// Standalone tone pill for ad hoc labels that are not entity statuses.
+class TonePill extends StatelessWidget {
+  const TonePill({super.key, required this.label, required this.tone});
+
+  final String label;
+  final Tone tone;
 
   @override
   Widget build(BuildContext context) {
-    final color = colorFor(status, kind);
+    final tones = AppTones.of(context);
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.14),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: color.withValues(alpha: 0.45)),
+        color: tones.background(tone),
+        borderRadius: BorderRadius.circular(AppTheme.radiusPill),
       ),
       child: Text(
-        labelFor(status, kind),
-        style: Theme.of(context).textTheme.labelSmall?.copyWith(
-          color: color,
+        label,
+        style: TextStyle(
+          fontSize: 12,
           fontWeight: FontWeight.w600,
+          color: tones.color(tone),
         ),
       ),
     );

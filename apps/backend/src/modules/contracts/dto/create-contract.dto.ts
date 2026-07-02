@@ -5,6 +5,7 @@ import {
   ArrayMinSize,
   IsArray,
   IsDateString,
+  IsEmail,
   IsOptional,
   IsString,
   IsUUID,
@@ -13,19 +14,18 @@ import {
   MinLength,
   ValidateNested,
 } from 'class-validator';
+import { AMOUNT_PATTERN } from '../../../common/constants';
 
-/** Positive USDC amount with up to 7 decimals (Stellar precision). */
-const AMOUNT_PATTERN = /^(?!0+(\.0+)?$)\d{1,13}(\.\d{1,7})?$/;
-
+/** A single milestone within a contract: title, amount and optional deadline. */
 export class MilestoneInputDto {
-  @ApiProperty({ example: 'Diseño UI/UX' })
+  @ApiProperty({ example: 'UI/UX design' })
   @IsString()
   @MinLength(2)
   @MaxLength(200)
   title!: string;
 
   @ApiPropertyOptional({
-    example: 'Wireframes y mockups de todas las pantallas',
+    example: 'Wireframes and mockups for every screen',
   })
   @IsOptional()
   @IsString()
@@ -47,18 +47,36 @@ export class MilestoneInputDto {
   deadline?: string;
 }
 
+/** Payload to create a contract with its milestones and a target freelancer. */
 export class CreateContractDto {
-  @ApiProperty({ description: 'FreelancerProfile id' })
+  @ApiPropertyOptional({
+    description:
+      'FreelancerProfile id (when picking an existing freelancer). Provide ' +
+      'this OR invitedEmail.',
+  })
+  @IsOptional()
   @IsUUID()
-  freelancerId!: string;
+  freelancerId?: string;
 
-  @ApiProperty({ example: 'Desarrollo de app móvil' })
+  @ApiPropertyOptional({
+    description:
+      'Email to address the contract to when the freelancer is not in your ' +
+      'directory yet. They get invited and the contract binds to them once ' +
+      'they sign up. Provide this OR freelancerId.',
+    example: 'freelancer@email.com',
+  })
+  @IsOptional()
+  @IsEmail()
+  @MaxLength(200)
+  invitedEmail?: string;
+
+  @ApiProperty({ example: 'Mobile app development' })
   @IsString()
   @MinLength(3)
   @MaxLength(200)
   title!: string;
 
-  @ApiPropertyOptional({ example: 'App Flutter con 4 milestones' })
+  @ApiPropertyOptional({ example: 'Flutter app with 4 milestones' })
   @IsOptional()
   @IsString()
   @MaxLength(5000)

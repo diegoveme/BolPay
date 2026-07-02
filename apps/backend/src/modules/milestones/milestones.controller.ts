@@ -14,6 +14,7 @@ import {
   ReviewDeliverableDto,
   SubmitDeliverableDto,
 } from './dto/submit-deliverable.dto';
+import { ConfirmTxDto } from '../contracts/dto/confirm-tx.dto';
 import { MilestonesService } from './milestones.service';
 
 @ApiTags('milestones')
@@ -22,6 +23,7 @@ import { MilestonesService } from './milestones.service';
 export class MilestonesController {
   constructor(private readonly milestonesService: MilestonesService) {}
 
+  /** Fetch a single milestone the current user is a party to. */
   @Get(':id')
   findById(
     @Param('id', ParseUUIDPipe) id: string,
@@ -30,6 +32,7 @@ export class MilestonesController {
     return this.milestonesService.findById(id, user);
   }
 
+  /** Freelancer submits a versioned deliverable (file, link and/or note). */
   @Post(':id/deliverables')
   @Roles('freelancer')
   @ApiOperation({ summary: 'Submit a versioned deliverable (file/link/note)' })
@@ -41,18 +44,52 @@ export class MilestonesController {
     return this.milestonesService.submitDeliverable(id, user, dto);
   }
 
-  @Post(':id/approve')
-  @Roles('company')
+  /** Freelancer gets the change-status XDR to sign (marks delivery on-chain). */
+  @Post(':id/deliver/prepare')
+  @Roles('freelancer')
   @ApiOperation({
-    summary: 'Approve the milestone and release escrow funds on-chain',
+    summary: 'Get the on-chain "delivered" transaction for the freelancer to sign',
   })
-  approve(
+  prepareDeliver(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: AuthUser,
   ) {
-    return this.milestonesService.approve(id, user);
+    return this.milestonesService.prepareDeliver(id, user);
   }
 
+  /** Step 1: company gets the approve XDR to sign with its wallet. */
+  @Post(':id/approve/prepare')
+  @Roles('company')
+  prepareApprove(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.milestonesService.prepareApprove(id, user);
+  }
+
+  /** Step 2: company gets the release XDR (after signing the approve). */
+  @Post(':id/release/prepare')
+  @Roles('company')
+  prepareRelease(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.milestonesService.prepareRelease(id, user);
+  }
+
+  /** Step 3: company confirms the release after signing both. */
+  /** Step 3: company confirms the on-chain release and records the payout. */
+  @Post(':id/approve/confirm')
+  @Roles('company')
+  confirmApprove(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthUser,
+    @Body() dto: ConfirmTxDto,
+  ) {
+    return this.milestonesService.confirmApprove(id, user, dto.txHash);
+  }
+
+  /** Company requests changes, sending the milestone back to the freelancer. */
   @Post(':id/request-changes')
   @Roles('company')
   requestChanges(

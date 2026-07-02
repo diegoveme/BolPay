@@ -17,14 +17,10 @@ export class PrismaExceptionFilter implements ExceptionFilter {
 
     switch (exception.code) {
       case 'P2002': {
-        const target = (exception.meta?.target as string[] | undefined)?.join(
-          ', ',
-        );
+        // Do not echo the constraint field/target name to the client.
         response.status(HttpStatus.CONFLICT).json({
           statusCode: HttpStatus.CONFLICT,
-          message: target
-            ? `A record with this ${target} already exists`
-            : 'Unique constraint violation',
+          message: 'A record with this value already exists',
           error: 'Conflict',
         });
         return;

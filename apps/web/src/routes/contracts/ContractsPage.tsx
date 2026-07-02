@@ -19,6 +19,7 @@ import {
 } from '@/components/ui';
 import { apiErrorMessage } from '@/lib/api';
 
+/** Lists the current user's contracts (company or freelancer view). */
 export function ContractsPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -30,40 +31,40 @@ export function ContractsPage() {
   return (
     <>
       <PageHeader
-        title="Contratos"
-        subtitle="Acuerdos con milestones respaldados por escrow en Stellar"
+        title="Contracts"
+        subtitle="Milestone-based agreements backed by escrow on Stellar"
         actions={
           user?.role === 'company' && (
             <Link to="/contracts/new" className="btn btn--primary">
-              + Nuevo contrato
+              + New contract
             </Link>
           )
         }
       />
       <Card>
         {isLoading ? (
-          <Spinner label="Cargando contratos…" />
+          <Spinner label="Loading contracts…" />
         ) : error ? (
           <ErrorState message={apiErrorMessage(error)} />
         ) : !data || data.length === 0 ? (
           <EmptyState
-            title="No hay contratos"
+            title="No contracts"
             hint={
               user?.role === 'company'
-                ? 'Crea el primero con el botón “Nuevo contrato”.'
-                : 'Cuando recibas una propuesta aparecerá aquí.'
+                ? 'Create your first one with the “New contract” button.'
+                : 'When you receive a proposal it will appear here.'
             }
           />
         ) : (
           <table className="table table--clickable">
             <thead>
               <tr>
-                <th>Contrato</th>
-                <th>{user?.role === 'freelancer' ? 'Empresa' : 'Freelancer'}</th>
-                <th>Monto total</th>
+                <th>Contract</th>
+                <th>{user?.role === 'freelancer' ? 'Company' : 'Freelancer'}</th>
+                <th>Total amount</th>
                 <th>Milestones</th>
-                <th>Estado</th>
-                <th>Creado</th>
+                <th>Status</th>
+                <th>Created</th>
               </tr>
             </thead>
             <tbody>
@@ -81,7 +82,7 @@ export function ContractsPage() {
                   <td>{formatUSDC(contract.totalAmount)}</td>
                   <td className="muted">
                     {contract.milestones.filter((m) => m.status === 'released').length}/
-                    {contract.milestones.length} pagados
+                    {contract.milestones.length} paid
                   </td>
                   <td>
                     <Badge tone={contractStatusTone[contract.status]}>

@@ -1,154 +1,282 @@
 import 'package:flutter/material.dart';
 
-import '../../core/api_config.dart';
 import '../../core/app_scope.dart';
-import '../../core/formatters.dart';
+import '../../domain/models/user.dart';
+import '../../ui/theme.dart';
+import '../../ui/widgets/confirm_sheet.dart';
+import '../../ui/widgets/feedback.dart';
+import '../../ui/widgets/section_header.dart';
+import '../../ui/widgets/status_badge.dart';
+import 'widgets/appearance_card.dart';
+import 'widgets/company_form_card.dart';
+import 'widgets/freelancer_form_card.dart';
+import 'widgets/invitations_card.dart';
+import 'widgets/wallet_card.dart';
 
-/// Perfil del usuario: datos, wallet Stellar y cierre de sesión.
-class ProfileScreen extends StatelessWidget {
+/// Profile settings (web `ProfilePage` parity): linked Stellar wallet,
+/// editable company or freelancer profile, email invitations (company
+/// and administrator) and sign out.
+class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
 
-  String _roleLabel(String role) {
-    switch (role) {
-      case 'freelancer':
-        return 'Freelancer';
-      case 'fixed_employee':
-        return 'Empleado fijo';
-      case 'company':
-        return 'Empresa';
-      case 'administrator':
-        return 'Administrador';
-      default:
-        return role;
+  @override
+  State<ProfileScreen> createState() => _ProfileScreenState();
+}
+
+class _ProfileScreenState extends State<ProfileScreen> {
+  // Company profile fields.
+  final _companyName = TextEditingController();
+  final _companyLocation = TextEditingController();
+  final _companyIndustry = TextEditingController();
+  final _companyWebsite = TextEditingController();
+  final _companyDescription = TextEditingController();
+  final _companyValues = TextEditingController();
+  String _companyAvatarUrl = '';
+
+  // Freelancer profile fields.
+  final _displayName = TextEditingController();
+  final _freelancerLocation = TextEditingController();
+  final _headline = TextEditingController();
+  final _bio = TextEditingController();
+  final _skills = TextEditingController();
+  final _freelancerWebsite = TextEditingController();
+  final _linkedin = TextEditingController();
+  final _github = TextEditingController();
+  String _freelancerAvatarUrl = '';
+
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _initFromUser(AppScope.read(context).auth.user);
+    _skills.addListener(() => setState(() {}));
+  }
+
+  @override
+  void dispose() {
+    for (final controller in [
+      _companyName,
+      _companyLocation,
+      _companyIndustry,
+      _companyWebsite,
+      _companyDescription,
+      _companyValues,
+      _displayName,
+      _freelancerLocation,
+      _headline,
+      _bio,
+      _skills,
+      _freelancerWebsite,
+      _linkedin,
+      _github,
+    ]) {
+      controller.dispose();
+    }
+    super.dispose();
+  }
+
+  void _initFromUser(User? user) {
+    final cp = user?.companyProfile;
+    _companyName.text = cp?.name ?? '';
+    _companyLocation.text = cp?.location ?? '';
+    _companyIndustry.text = cp?.industry ?? '';
+    _companyWebsite.text = cp?.website ?? '';
+    _companyDescription.text = cp?.description ?? '';
+    _companyValues.text = cp?.values ?? '';
+    _companyAvatarUrl = cp?.avatarUrl ?? '';
+
+    final fp = user?.freelancerProfile;
+    _displayName.text = fp?.displayName ?? '';
+    _freelancerLocation.text = fp?.location ?? '';
+    _headline.text = fp?.headline ?? '';
+    _bio.text = fp?.bio ?? '';
+    _skills.text = fp?.skills.join(', ') ?? '';
+    _freelancerWebsite.text = fp?.website ?? '';
+    _linkedin.text = fp?.linkedin ?? '';
+    _github.text = fp?.github ?? '';
+    _freelancerAvatarUrl = fp?.avatarUrl ?? '';
+  }
+
+  /// Web parity: empty fields are omitted from the PATCH payload.
+  String? _clean(String value) {
+    final trimmed = value.trim();
+    return trimmed.isEmpty ? null : trimmed;
+  }
+
+  List<String> get _skillList => _skills.text
+      .split(',')
+      .map((s) => s.trim())
+      .where((s) => s.isNotEmpty)
+      .toList();
+
+  Future<void> _save(String role) async {
+    final scope = AppScope.read(context);
+    setState(() => _saving = true);
+    try {
+      if (role == 'company') {
+        await scope.users.updateCompanyProfile(
+          name: _clean(_companyName.text),
+          description: _clean(_companyDescription.text),
+          location: _clean(_companyLocation.text),
+          website: _clean(_companyWebsite.text),
+          industry: _clean(_companyIndustry.text),
+          values: _clean(_companyValues.text),
+          avatarUrl: _clean(_companyAvatarUrl),
+        );
+      } else {
+        await scope.users.updateFreelancerProfile(
+          displayName: _clean(_displayName.text),
+          headline: _clean(_headline.text),
+          bio: _clean(_bio.text),
+          skills: _skillList,
+          location: _clean(_freelancerLocation.text),
+          website: _clean(_freelancerWebsite.text),
+          linkedin: _clean(_linkedin.text),
+          github: _clean(_github.text),
+          avatarUrl: _clean(_freelancerAvatarUrl),
+        );
+      }
+      if (!mounted) return;
+      showSuccessSnackBar(context, 'Profile updated');
+      await scope.auth.refreshUser();
+    } catch (e) {
+      if (mounted) showErrorSnackBar(context, e);
+    } finally {
+      if (mounted) setState(() => _saving = false);
     }
   }
 
-  Future<void> _confirmLogout(BuildContext context) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Cerrar sesión'),
-        content: const Text('¿Seguro que quieres cerrar sesión?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('Cerrar sesión'),
-          ),
-        ],
-      ),
+  Future<void> _copyAddress(String address) async {
+    await copyToClipboard(context, address, message: 'Address copied');
+  }
+
+  Future<void> _confirmLogout() async {
+    final confirmed = await showConfirmSheet(
+      context,
+      title: 'Log out',
+      body: 'Are you sure you want to log out?',
+      confirmLabel: 'Log out',
     );
-    if (confirmed == true && context.mounted) {
+    if (confirmed == true && mounted) {
+      // logout() is the single full-teardown path: it clears the JWT, the
+      // custodial wallet session and the wallet source, and best-effort
+      // revokes the server session.
       await AppScope.read(context).auth.logout();
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final colors = AppColors.of(context);
     final auth = AppScope.of(context).auth;
     return ListenableBuilder(
       listenable: auth,
       builder: (context, _) {
         final user = auth.user;
-        final displayName = user?.displayName ?? '';
-        final initial = displayName.isEmpty
-            ? '?'
-            : displayName[0].toUpperCase();
+        if (user == null) {
+          return const Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          );
+        }
+        final address = user.stellarAddress;
+        final manageInvitations =
+            user.role == 'company' || user.role == 'administrator';
+
         return Scaffold(
-          appBar: AppBar(title: const Text('Perfil')),
+          appBar: AppBar(title: const Text('Profile')),
           body: ListView(
             padding: const EdgeInsets.all(16),
             children: [
-              Center(
-                child: CircleAvatar(
-                  radius: 36,
-                  backgroundColor: theme.colorScheme.primaryContainer,
-                  child: Text(
-                    initial,
-                    style: theme.textTheme.headlineMedium?.copyWith(
-                      color: theme.colorScheme.onPrimaryContainer,
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-              Center(
-                child: Text(
-                  user?.displayName ?? 'Usuario',
-                  style: theme.textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-              if (user != null)
-                Center(
-                  child: Text(
-                    _roleLabel(user.role),
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: theme.colorScheme.primary,
-                    ),
-                  ),
-                ),
-              const SizedBox(height: 24),
-              Card(
-                margin: EdgeInsets.zero,
-                child: Column(
-                  children: [
-                    ListTile(
-                      leading: const Icon(Icons.mail_outline),
-                      title: const Text('Email'),
-                      subtitle: Text(user?.email ?? '—'),
-                    ),
-                    const Divider(height: 1),
-                    if (user == null || user.wallets.isEmpty)
-                      const ListTile(
-                        leading: Icon(Icons.account_balance_wallet_outlined),
-                        title: Text('Wallet Stellar'),
-                        subtitle: Text('Sin wallet registrada'),
-                      )
-                    else
-                      for (final wallet in user.wallets)
-                        ListTile(
-                          leading: const Icon(
-                            Icons.account_balance_wallet_outlined,
-                          ),
-                          title: Text(
-                            wallet.isPrimary
-                                ? 'Wallet Stellar (principal)'
-                                : 'Wallet Stellar',
-                          ),
-                          subtitle: Text(shortAddress(wallet.address)),
-                        ),
-                  ],
+              SectionHeader(
+                title: 'Profile',
+                subtitle:
+                    '${statusLabel(StatusKind.role, user.role)} · '
+                    '${user.email}',
+                trailing: TonePill(
+                  label: user.emailVerified ? 'Verified' : 'Unverified',
+                  tone: user.emailVerified ? Tone.success : Tone.warning,
                 ),
               ),
               const SizedBox(height: 16),
-              Card(
-                margin: EdgeInsets.zero,
-                child: ListTile(
-                  leading: const Icon(Icons.dns_outlined),
-                  title: const Text('Servidor'),
-                  subtitle: Text(ApiConfig.baseUrl),
-                ),
+              WalletCard(
+                address: address,
+                onCopy: () => _copyAddress(address ?? ''),
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 20),
+              if (user.role == 'company') ...[
+                _companyCard(user),
+                const SizedBox(height: 20),
+              ],
+              if (user.role == 'freelancer') ...[
+                _freelancerCard(user),
+                const SizedBox(height: 20),
+              ],
+              if (manageInvitations) ...[
+                InvitationsCard(isAdministrator: user.isAdministrator),
+                const SizedBox(height: 20),
+              ],
+              _appearanceCard(),
+              const SizedBox(height: 20),
               OutlinedButton.icon(
-                onPressed: () => _confirmLogout(context),
+                onPressed: _confirmLogout,
                 style: OutlinedButton.styleFrom(
-                  foregroundColor: theme.colorScheme.error,
+                  foregroundColor: colors.danger,
                   padding: const EdgeInsets.symmetric(vertical: 14),
                 ),
                 icon: const Icon(Icons.logout),
-                label: const Text('Cerrar sesión'),
+                label: const Text('Log out'),
               ),
+              const SizedBox(height: 8),
             ],
           ),
         );
       },
+    );
+  }
+
+  /// Theme selector (system / light / dark), persisted by ThemeController.
+  Widget _appearanceCard() {
+    final theme = AppScope.read(context).theme;
+    return ValueListenableBuilder<ThemeMode>(
+      valueListenable: theme,
+      builder: (context, mode, _) =>
+          AppearanceCard(mode: mode, onModeChanged: theme.setMode),
+    );
+  }
+
+  Widget _companyCard(User user) {
+    return CompanyFormCard(
+      nameController: _companyName,
+      locationController: _companyLocation,
+      industryController: _companyIndustry,
+      websiteController: _companyWebsite,
+      descriptionController: _companyDescription,
+      valuesController: _companyValues,
+      avatarUrl: _companyAvatarUrl,
+      onAvatarChanged: (v) => setState(() => _companyAvatarUrl = v),
+      fallbackName: user.email,
+      saving: _saving,
+      onSave: () => _save(user.role),
+    );
+  }
+
+  Widget _freelancerCard(User user) {
+    return FreelancerFormCard(
+      displayNameController: _displayName,
+      locationController: _freelancerLocation,
+      headlineController: _headline,
+      bioController: _bio,
+      skillsController: _skills,
+      websiteController: _freelancerWebsite,
+      linkedinController: _linkedin,
+      githubController: _github,
+      avatarUrl: _freelancerAvatarUrl,
+      onAvatarChanged: (v) => setState(() => _freelancerAvatarUrl = v),
+      fallbackName: user.email,
+      skills: _skillList,
+      saving: _saving,
+      onSave: () => _save(user.role),
     );
   }
 }

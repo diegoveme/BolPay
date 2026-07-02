@@ -52,7 +52,10 @@ export class JwtAuthGuard implements CanActivate {
     const header = request.headers.authorization;
     if (!header) {
       // SSE (EventSource) cannot set headers; allow the token as a query param
-      // for the notifications stream only.
+      // for the notifications stream route only. Any other route must use the
+      // Authorization header so tokens are not leaked via URLs/logs.
+      const path = request.path ?? request.url ?? '';
+      if (!path.includes('/notifications/stream')) return undefined;
       const queryToken = (request.query as Record<string, unknown>)
         .access_token;
       return typeof queryToken === 'string' ? queryToken : undefined;

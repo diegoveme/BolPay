@@ -155,29 +155,3 @@ export const NotificationType = {
   InvitationReceived: 'invitation_received',
 } as const;
 export type NotificationType = (typeof NotificationType)[keyof typeof NotificationType];
-
-/** Activity log event names (docs/proyecto_overview.md §8). */
-export const ActivityEvent = {
-  ContractCreated: 'contract.created',
-  ContractSent: 'contract.sent',
-  ContractAccepted: 'contract.accepted',
-  ContractRejected: 'contract.rejected',
-  ContractChangesRequested: 'contract.changes_requested',
-  ContractCompleted: 'contract.completed',
-  EscrowCreated: 'escrow.created',
-  EscrowFunded: 'escrow.funded',
-  DeliverableSubmitted: 'deliverable.submitted',
-  MilestoneApproved: 'milestone.approved',
-  MilestoneChangesRequested: 'milestone.changes_requested',
-  PaymentReleased: 'payment.released',
-  DisputeOpened: 'dispute.opened',
-  DisputeEscalated: 'dispute.escalated',
-  DisputeResolved: 'dispute.resolved',
-  PayrollCreated: 'payroll.created',
-  PayrollFunded: 'payroll.funded',
-  PayrollExecuted: 'payroll.executed',
-  UserRegistered: 'user.registered',
-  WalletLinked: 'wallet.linked',
-  InvitationSent: 'invitation.sent',
-} as const;
-export type ActivityEvent = (typeof ActivityEvent)[keyof typeof ActivityEvent];

@@ -11,6 +11,8 @@ import { ActivityLogsService } from '../activity-logs/activity-logs.service';
 import type { JwtPayload } from '../../common/types/auth';
 import { LoginDto } from './dto/login.dto';
 import { PollarService } from './pollar.service';
+import { WalletAuthService } from './wallet-auth.service';
+import { EmailVerificationService } from './email-verification.service';
 
 const USER_INCLUDE = {
   companyProfile: true,
@@ -30,35 +32,103 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
     private readonly pollar: PollarService,
+    private readonly walletAuth: WalletAuthService,
     private readonly activityLogs: ActivityLogsService,
+    private readonly emailVerification: EmailVerificationService,
   ) {}
 
+  /** Challenge transaction a self-custodial wallet signs to prove ownership. */
+  issueWalletChallenge(stellarAddress: string) {
+    return this.walletAuth.issueChallenge(stellarAddress);
+  }
+
+  /**
+   * Authenticate a wallet (self-custodial signature or Pollar-managed),
+   * register the user on first login or sync their wallet, and return a signed
+   * BolPay session.
+   */
   async login(dto: LoginDto) {
-    const email = dto.email.toLowerCase();
-
-    // Fail-closed wallet ownership check whenever the secret key is present
-    // (production refuses to boot without it — see PollarService).
-    if (this.pollar.isConfigured && !dto.pollarWalletId) {
-      throw new UnauthorizedException('pollarWalletId is required');
-    }
-    const verified = await this.pollar.verifyWallet(
-      dto.pollarWalletId,
-      dto.stellarAddress,
-    );
-    if (!verified) {
-      throw new UnauthorizedException(
-        'Pollar wallet does not match the claimed address',
+    // Two independent ways to prove wallet ownership:
+    //  - Self-custodial wallet (Stellar Wallets Kit): the client signs a
+    //    server challenge, verified here by signature. Selected by the presence
+    //    of walletAuthXdr.
+    //  - Pollar-managed wallet: fail-closed check against the Pollar Server
+    //    (secret key). The client MUST supply the Pollar wallet id; in dev (no
+    //    secret key) verification is skipped - see PollarService.
+    if (dto.walletAuthXdr) {
+      if (!this.walletAuth.verify(dto.stellarAddress, dto.walletAuthXdr)) {
+        throw new UnauthorizedException(
+          'Wallet ownership challenge failed or expired',
+        );
+      }
+    } else {
+      if (this.pollar.isConfigured && !dto.pollarWalletId) {
+        throw new UnauthorizedException('pollarWalletId is required');
+      }
+      const verified = await this.pollar.verifyWallet(
+        dto.pollarWalletId,
+        dto.stellarAddress,
       );
+      if (!verified) {
+        throw new UnauthorizedException(
+          'Pollar wallet does not match the claimed address',
+        );
+      }
     }
 
-    let user = await this.prisma.user.findUnique({
-      where: { email },
+    // Returning users are identified by their WALLET (not email): a connected
+    // wallet that already has an account goes straight to a session - no email,
+    // no role, no registration form.
+    let user = await this.prisma.user.findFirst({
+      where: {
+        OR: [
+          ...(dto.pollarWalletId ? [{ pollarWalletId: dto.pollarWalletId }] : []),
+          { stellarAddress: dto.stellarAddress },
+        ],
+      },
       include: USER_INCLUDE,
     });
 
-    user = user
-      ? await this.syncWallet(user, dto)
-      : await this.register(email, dto);
+    const email = dto.email?.toLowerCase();
+    if (!user && email) {
+      // Email fallback matches ONLY unclaimed shell accounts (no wallet bound
+      // yet). A fully-registered account already has a stellarAddress and is
+      // never reachable by email here, so knowing a victim's email cannot
+      // rebind their wallet: the caller falls through to register(), where the
+      // unique email constraint rejects the duplicate. Shell accounts still
+      // require the emailed invitation token in claimInvitedAccount below.
+      user = await this.prisma.user.findFirst({
+        where: { email, stellarAddress: null },
+        include: USER_INCLUDE,
+      });
+    }
+
+    // An invited account exists but has never been claimed (no wallet yet, e.g.
+    // a freelancer a company addressed a contract to). Binding a wallet to it
+    // requires the emailed invitation token, so nobody can take it over just by
+    // typing the email.
+    if (user && !user.stellarAddress) {
+      await this.claimInvitedAccount(user, dto);
+    }
+
+    if (user) {
+      user = await this.syncWallet(user, dto);
+    } else {
+      // First-time account: we need an email and a role.
+      if (!email) {
+        throw new BadRequestException('email is required to create your account');
+      }
+      user = await this.register(email, dto);
+    }
+
+    // Login fully succeeded. For the self-custodial path, burn the challenge now
+    // (verify() does not consume it) so the signed XDR cannot be replayed after
+    // use. Done here, not in verify(), so a first attempt that throws before
+    // this point (e.g. missing email/role) leaves the challenge valid for the
+    // registration re-submit.
+    if (dto.walletAuthXdr) {
+      this.walletAuth.consume(dto.stellarAddress);
+    }
 
     const payload: JwtPayload = {
       sub: user.id,
@@ -71,6 +141,7 @@ export class AuthService {
     };
   }
 
+  /** Return the authenticated user with their profiles and linked wallets. */
   me(userId: string) {
     return this.prisma.user.findUniqueOrThrow({
       where: { id: userId },
@@ -105,14 +176,46 @@ export class AuthService {
       role,
       provider: dto.provider,
     });
+    // Best-effort: send the email-verification link (never blocks registration).
+    await this.emailVerification.issue(user.id, user.email);
     return user;
+  }
+
+  /** Mark an email as verified from an emailed token. */
+  verifyEmail(token: string) {
+    return this.emailVerification.verify(token);
+  }
+
+  /** Email a sign-in code (manual self-declared-wallet path). */
+  async requestEmailCode(email: string) {
+    await this.emailVerification.requestLoginCode(email);
+    return { sent: true };
+  }
+
+  /** Validate and consume an emailed sign-in code. Throws when it is wrong. */
+  async verifyEmailCode(email: string, code: string) {
+    await this.emailVerification.verifyLoginCode(email, code);
+    return { verified: true };
+  }
+
+  /** Re-send the verification email unless the address is already verified. */
+  async resendVerification(userId: string) {
+    const user = await this.prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+      select: { id: true, email: true, emailVerified: true },
+    });
+    if (user.emailVerified) {
+      return { alreadyVerified: true };
+    }
+    await this.emailVerification.resend(user.id, user.email);
+    return { sent: true };
   }
 
   /**
    * Keep the Pollar wallet link up to date on subsequent logins.
    *
    * Rebinding an EXISTING account to a different wallet is only allowed when
-   * the new (walletId, address) pair was verified against Pollar — otherwise
+   * the new (walletId, address) pair was verified against Pollar - otherwise
    * anyone who knows a victim's email could hijack their payout address.
    */
   private async syncWallet(
@@ -160,6 +263,46 @@ export class AuthService {
       stellarAddress: dto.stellarAddress,
     });
     return updated;
+  }
+
+  /**
+   * Claim a pre-created (invited) account: the caller must present the emailed
+   * invitation token matching this account's email. Proves control of the
+   * invited inbox, so the email is marked verified. The wallet is bound right
+   * after by syncWallet.
+   */
+  private async claimInvitedAccount(user: User, dto: LoginDto) {
+    if (!dto.invitationToken) {
+      throw new ForbiddenException(
+        'This account was invited; open the invitation link in your email to claim it',
+      );
+    }
+    const invitation = await this.prisma.invitation.findUnique({
+      where: { token: dto.invitationToken },
+    });
+    if (!invitation || invitation.status !== 'pending') {
+      throw new BadRequestException('Invitation is invalid or already used');
+    }
+    if (invitation.expiresAt < new Date()) {
+      await this.prisma.invitation.update({
+        where: { id: invitation.id },
+        data: { status: 'expired' },
+      });
+      throw new BadRequestException('Invitation has expired');
+    }
+    if (invitation.email.toLowerCase() !== user.email.toLowerCase()) {
+      throw new ForbiddenException(
+        'Invitation was issued for a different email',
+      );
+    }
+    await this.prisma.invitation.update({
+      where: { id: invitation.id },
+      data: { status: 'accepted' },
+    });
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { emailVerified: true },
+    });
   }
 
   /**

@@ -36,8 +36,8 @@ export function AdminPage() {
   return (
     <>
       <PageHeader
-        title="Administración"
-        subtitle="Supervisión de la plataforma: usuarios, escrows y actividad global"
+        title="Administration"
+        subtitle="Platform supervision: users, escrows and global activity"
         actions={
           <div className="row">
             {(['users', 'escrows', 'activity'] as Tab[]).map((t) => (
@@ -46,7 +46,7 @@ export function AdminPage() {
                 variant={tab === t ? 'primary' : 'secondary'}
                 onClick={() => setTab(t)}
               >
-                {t === 'users' ? 'Usuarios' : t === 'escrows' ? 'Escrows' : 'Actividad'}
+                {t === 'users' ? 'Users' : t === 'escrows' ? 'Escrows' : 'Activity'}
               </Button>
             ))}
           </div>
@@ -59,6 +59,7 @@ export function AdminPage() {
   );
 }
 
+/** Admin tab listing every platform user with role, wallet and signup date. */
 function UsersTab() {
   const { data, isLoading, error } = useQuery({
     queryKey: ['admin', 'users'],
@@ -71,16 +72,16 @@ function UsersTab() {
       ) : error ? (
         <ErrorState message={apiErrorMessage(error)} />
       ) : !data || data.length === 0 ? (
-        <EmptyState title="Sin usuarios" />
+        <EmptyState title="No users" />
       ) : (
         <table className="table">
           <thead>
             <tr>
               <th>Email</th>
-              <th>Nombre</th>
-              <th>Rol</th>
+              <th>Name</th>
+              <th>Role</th>
               <th>Wallet</th>
-              <th>Registro</th>
+              <th>Signed up</th>
             </tr>
           </thead>
           <tbody>
@@ -91,7 +92,7 @@ function UsersTab() {
                   {user.name ??
                     user.companyProfile?.name ??
                     user.freelancerProfile?.displayName ??
-                    '—'}
+                    '·'}
                 </td>
                 <td>
                   <Badge tone="info">{roleLabel[user.role]}</Badge>
@@ -107,6 +108,7 @@ function UsersTab() {
   );
 }
 
+/** Admin tab monitoring every escrow: source, type, on-chain contract and balances. */
 function EscrowsTab() {
   const { data, isLoading, error } = useQuery({
     queryKey: ['admin', 'escrows'],
@@ -119,24 +121,24 @@ function EscrowsTab() {
       ) : error ? (
         <ErrorState message={apiErrorMessage(error)} />
       ) : !data || data.length === 0 ? (
-        <EmptyState title="Sin escrows" />
+        <EmptyState title="No escrows" />
       ) : (
         <table className="table">
           <thead>
             <tr>
-              <th>Origen</th>
-              <th>Tipo</th>
-              <th>Contrato Soroban</th>
-              <th>Fondeado</th>
-              <th>Liberado</th>
-              <th>Estado</th>
+              <th>Source</th>
+              <th>Type</th>
+              <th>Soroban contract</th>
+              <th>Funded</th>
+              <th>Released</th>
+              <th>Status</th>
             </tr>
           </thead>
           <tbody>
             {data.map((escrow) => (
               <tr key={escrow.id}>
                 <td style={{ fontWeight: 600 }}>
-                  {escrow.contract?.title ?? escrow.payroll?.name ?? '—'}
+                  {escrow.contract?.title ?? escrow.payroll?.name ?? '·'}
                 </td>
                 <td className="muted">{escrow.type}</td>
                 <td className="mono muted">{shortAddress(escrow.trustlessWorkId)}</td>
@@ -164,6 +166,7 @@ function EscrowsTab() {
   );
 }
 
+/** Admin tab showing the global activity log across the platform. */
 function ActivityTab() {
   const { data, isLoading, error } = useQuery({
     queryKey: ['admin', 'activity'],
@@ -176,7 +179,7 @@ function ActivityTab() {
       ) : error ? (
         <ErrorState message={apiErrorMessage(error)} />
       ) : !data || data.length === 0 ? (
-        <EmptyState title="Sin actividad" />
+        <EmptyState title="No activity" />
       ) : (
         <table className="table">
           <tbody>

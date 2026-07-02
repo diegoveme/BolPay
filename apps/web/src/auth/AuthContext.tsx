@@ -16,6 +16,7 @@ import {
   saveSession,
   type StoredSession,
 } from '@/lib/session';
+import { clearWalletSource } from '@/lib/walletKit';
 
 interface AuthContextValue {
   /** BolPay session (JWT + user). Null until /auth/login succeeds. */
@@ -53,6 +54,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(() => {
     clearSession();
+    clearWalletSource();
     setSession(null);
     // Also drop the Pollar session so the next login starts clean.
     try {

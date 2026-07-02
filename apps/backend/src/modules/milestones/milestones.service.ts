@@ -9,6 +9,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { ActivityLogsService } from '../activity-logs/activity-logs.service';
 import { EscrowService } from '../escrow/escrow.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { ContractsService } from '../contracts/contracts.service';
 import type { AuthUser } from '../../common/types/auth';
 import {
   ReviewDeliverableDto,
@@ -35,8 +36,13 @@ type LoadedMilestone = Prisma.MilestoneGetPayload<{
   include: typeof MILESTONE_INCLUDE;
 }>;
 
-/** Milestone states a freelancer can (re)submit work for. */
-const SUBMITTABLE: MilestoneStatus[] = ['pending', 'submitted', 'in_review'];
+/**
+ * Milestone states a freelancer can submit work for. Only 'pending': once a
+ * deliverable is submitted the milestone is 'submitted' and the freelancer must
+ * wait for the company to approve or request changes (which sends it back to
+ * 'pending') before submitting again. No silent re-uploads over a pending review.
+ */
+const SUBMITTABLE: MilestoneStatus[] = ['pending'];
 /** Milestone states a company can review. */
 const REVIEWABLE: MilestoneStatus[] = ['submitted', 'in_review'];
 
@@ -47,8 +53,10 @@ export class MilestonesService {
     private readonly escrowService: EscrowService,
     private readonly notifications: NotificationsService,
     private readonly activityLogs: ActivityLogsService,
+    private readonly contracts: ContractsService,
   ) {}
 
+  /** Load a milestone, ensuring the requester is a party to its contract. */
   async findById(id: string, user: AuthUser) {
     const milestone = await this.load(id);
     this.assertParty(milestone, user);
@@ -100,18 +108,14 @@ export class MilestonesService {
       }),
     ]);
 
-    if (milestone.contract.escrow) {
-      await this.escrowService.submitMilestoneEvidence(
-        milestone.contract.escrow,
-        milestone,
-        dto.linkUrl ?? dto.fileUrl ?? dto.note ?? 'delivered',
-      );
-    }
+    // On-chain "Completed" mark is signed by the freelancer themselves (TW
+    // requires the serviceProvider to sign it). The client does that via
+    // prepareDeliver after this DB submission; simulated mode skips it.
 
     await this.notifications.notify(
       milestone.contract.company.userId,
       'deliverable_submitted',
-      `Nueva entrega (v${nextVersion}) en "${milestone.title}" — ${milestone.contract.title}`,
+      `New deliverable (v${nextVersion}) on "${milestone.title}" - ${milestone.contract.title}`,
       { contractId: milestone.contractId, milestoneId: id },
     );
     await this.activityLogs.record(user.id, 'deliverable.submitted', {
@@ -122,10 +126,38 @@ export class MilestonesService {
   }
 
   /**
-   * Company approves the milestone: the latest deliverable is accepted and the
-   * escrow releases the funds to the freelancer's wallet automatically.
+   * Build the change-status XDR for the freelancer to sign, marking the
+   * milestone delivered on-chain. Call after submitDeliverable. In simulated
+   * mode `deliverXdr` is null and the client skips signing.
    */
-  async approve(id: string, user: AuthUser) {
+  async prepareDeliver(id: string, user: AuthUser) {
+    const milestone = await this.load(id);
+    if (milestone.contract.freelancer.userId !== user.id) {
+      throw new ForbiddenException(
+        'Only the assigned freelancer can mark delivery',
+      );
+    }
+    const escrow = milestone.contract.escrow;
+    if (!escrow) throw new BadRequestException('Contract has no escrow');
+    const freelancerAddress = milestone.contract.freelancer.user.stellarAddress;
+    if (!freelancerAddress) {
+      throw new BadRequestException('Connect your wallet to mark delivery');
+    }
+    const latest = milestone.deliverables[0];
+    const evidence =
+      latest?.linkUrl ?? latest?.fileUrl ?? latest?.note ?? 'delivered';
+    return this.escrowService.prepareMilestoneDeliver(
+      escrow,
+      milestone,
+      freelancerAddress,
+      evidence,
+    );
+  }
+
+  // -- Non-custodial approve + release: signed by the company itself -----------
+
+  /** Step 1: build the APPROVE XDR for the company to sign. */
+  async prepareApprove(id: string, user: AuthUser) {
     const milestone = await this.load(id);
     this.assertCompanyOwner(milestone, user);
     if (!REVIEWABLE.includes(milestone.status)) {
@@ -134,42 +166,91 @@ export class MilestonesService {
       );
     }
     const escrow = milestone.contract.escrow;
-    if (!escrow) throw new BadRequestException('Contract has no funded escrow');
-
-    // On-chain first: if the release fails the milestone stays reviewable.
-    const txHash = await this.escrowService.releaseMilestoneFunds(
+    if (!escrow || escrow.status !== 'funded') {
+      throw new BadRequestException('Fund the escrow before approving milestones');
+    }
+    const companyAddress = milestone.contract.company.user.stellarAddress;
+    if (!companyAddress) {
+      throw new BadRequestException('Connect your wallet to approve');
+    }
+    return this.escrowService.prepareMilestoneApprove(
       escrow,
       milestone,
+      companyAddress,
+    );
+  }
+
+  /** Step 2: build the RELEASE XDR (after the approve is on-chain). */
+  async prepareRelease(id: string, user: AuthUser) {
+    const milestone = await this.load(id);
+    this.assertCompanyOwner(milestone, user);
+    const escrow = milestone.contract.escrow;
+    if (!escrow) throw new BadRequestException('Contract has no escrow');
+    const companyAddress = milestone.contract.company.user.stellarAddress;
+    if (!companyAddress) {
+      throw new BadRequestException('Connect your wallet to release');
+    }
+    return this.escrowService.prepareMilestoneReleaseXdr(
+      escrow,
+      milestone,
+      companyAddress,
+    );
+  }
+
+  /** Step 3: record the release after the company signed approve + release. */
+  async confirmApprove(id: string, user: AuthUser, txHash?: string) {
+    const milestone = await this.load(id);
+    this.assertCompanyOwner(milestone, user);
+    if (milestone.status === 'released') return this.load(id); // idempotent
+    if (!REVIEWABLE.includes(milestone.status)) {
+      throw new BadRequestException(
+        `Cannot approve a milestone in status "${milestone.status}"`,
+      );
+    }
+    const escrow = milestone.contract.escrow;
+    if (!escrow) throw new BadRequestException('Contract has no funded escrow');
+
+    // Atomic claim BEFORE the on-chain release: only one concurrent approval
+    // flips submitted/in_review -> released. A second call claims 0 rows and
+    // aborts, so the milestone can never be released (and paid) twice. If the
+    // release below throws, the exception propagates so the operator can
+    // recover; the settleHash fail-closed check still runs first.
+    const claimed = await this.prisma.milestone.updateMany({
+      where: { id, status: { in: ['submitted', 'in_review'] } },
+      data: { status: 'released' },
+    });
+    if (claimed.count !== 1) {
+      throw new BadRequestException(
+        `Cannot approve a milestone in status "${milestone.status}"`,
+      );
+    }
+
+    const hash = await this.escrowService.confirmMilestoneRelease(
+      escrow,
+      milestone,
+      txHash,
     );
 
     const latest = milestone.deliverables[0];
-    await this.prisma.$transaction([
-      ...(latest
-        ? [
-            this.prisma.deliverable.update({
-              where: { id: latest.id },
-              data: { status: 'approved' },
-            }),
-          ]
-        : []),
-      this.prisma.milestone.update({
-        where: { id },
-        data: { status: 'released' },
-      }),
-    ]);
+    if (latest) {
+      await this.prisma.deliverable.update({
+        where: { id: latest.id },
+        data: { status: 'approved' },
+      });
+    }
 
     const freelancerUserId = milestone.contract.freelancer.userId;
     await this.notifications.notify(
       freelancerUserId,
       'deliverable_approved',
-      `Tu entrega de "${milestone.title}" fue aprobada`,
+      `Your deliverable for "${milestone.title}" was approved`,
       { contractId: milestone.contractId, milestoneId: id },
     );
     await this.notifications.notify(
       freelancerUserId,
       'payment_released',
-      `Pago liberado: ${milestone.amount.toString()} USDC por "${milestone.title}"`,
-      { contractId: milestone.contractId, milestoneId: id, txHash },
+      `Payment released: ${milestone.amount.toString()} USDC for "${milestone.title}"`,
+      { contractId: milestone.contractId, milestoneId: id, txHash: hash },
     );
     await this.activityLogs.record(user.id, 'milestone.approved', {
       milestoneId: id,
@@ -177,10 +258,10 @@ export class MilestonesService {
     await this.activityLogs.record(user.id, 'payment.released', {
       milestoneId: id,
       amount: milestone.amount.toString(),
-      txHash,
+      txHash: hash,
     });
 
-    await this.completeContractIfDone(milestone);
+    await this.contracts.completeIfAllReleased(milestone.contractId);
     return this.load(id);
   }
 
@@ -211,7 +292,7 @@ export class MilestonesService {
     await this.notifications.notify(
       milestone.contract.freelancer.userId,
       'deliverable_changes_requested',
-      `Cambios solicitados en "${milestone.title}" — ${milestone.contract.title}`,
+      `Changes requested on "${milestone.title}" - ${milestone.contract.title}`,
       {
         contractId: milestone.contractId,
         milestoneId: id,
@@ -255,35 +336,4 @@ export class MilestonesService {
     }
   }
 
-  /** When every milestone is released the contract is completed (docs §2). */
-  private async completeContractIfDone(milestone: LoadedMilestone) {
-    const states = await this.prisma.milestone.findMany({
-      where: { contractId: milestone.contractId },
-      select: { status: true },
-    });
-    if (!states.every((m) => m.status === 'released')) return;
-
-    await this.prisma.contract.update({
-      where: { id: milestone.contractId },
-      data: { status: 'completed', completedAt: new Date() },
-    });
-    const message = `Contrato "${milestone.contract.title}" completado: todos los milestones fueron liberados`;
-    await this.notifications.notify(
-      milestone.contract.company.userId,
-      'contract_accepted',
-      message,
-      { contractId: milestone.contractId },
-    );
-    await this.notifications.notify(
-      milestone.contract.freelancer.userId,
-      'contract_accepted',
-      message,
-      { contractId: milestone.contractId },
-    );
-    await this.activityLogs.record(
-      milestone.contract.company.userId,
-      'contract.completed',
-      { contractId: milestone.contractId },
-    );
-  }
 }

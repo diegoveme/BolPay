@@ -10,10 +10,10 @@ import {
   Card,
   Field,
   PageHeader,
-  SelectField,
   Spinner,
   TextareaField,
 } from '@/components/ui';
+import { AsyncSelect } from '@/components/AsyncSelect';
 
 interface MilestoneDraft {
   title: string;
@@ -37,16 +37,11 @@ export function ContractFormPage() {
   const { pushToast } = useNotificationsUi();
 
   const [freelancerId, setFreelancerId] = useState('');
+  const [invitedEmail, setInvitedEmail] = useState('');
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [deadline, setDeadline] = useState('');
   const [milestones, setMilestones] = useState<MilestoneDraft[]>([emptyMilestone()]);
-
-  const { data: freelancers } = useQuery({
-    queryKey: ['freelancers'],
-    queryFn: async () =>
-      (await api.get<FreelancerDirectoryItem[]>('/users/freelancers')).data,
-  });
 
   const { data: existing, isLoading: loadingExisting } = useQuery({
     queryKey: ['contracts', id],
@@ -89,59 +84,89 @@ export function ContractFormPage() {
         return (await api.patch<ContractDetail>(`/contracts/${id}`, payload)).data;
       }
       return (
-        await api.post<ContractDetail>('/contracts', { ...payload, freelancerId })
+        await api.post<ContractDetail>('/contracts', {
+          ...payload,
+          ...(invitedEmail ? { invitedEmail } : { freelancerId }),
+        })
       ).data;
     },
     onSuccess: (contract) => navigate(`/contracts/${contract.id}`),
     onError: (err) => pushToast(apiErrorMessage(err)),
   });
 
-  if (isEdit && loadingExisting) return <Spinner label="Cargando contrato…" />;
+  if (isEdit && loadingExisting) return <Spinner label="Loading contract…" />;
 
   const valid =
     title.trim().length >= 3 &&
-    (isEdit || freelancerId) &&
+    (isEdit || freelancerId || invitedEmail) &&
     milestones.length > 0 &&
     milestones.every((m) => m.title.trim().length >= 2 && Number(m.amount) > 0);
 
   return (
     <>
       <PageHeader
-        title={isEdit ? 'Editar contrato' : 'Nuevo contrato'}
-        subtitle="Define los milestones: cada uno se paga desde el escrow al ser aprobado"
+        title={isEdit ? 'Edit contract' : 'New contract'}
+        subtitle="Define the milestones: each one is paid from escrow once approved"
       />
 
-      <Card title="Datos generales">
+      <Card title="General details">
         {!isEdit && (
-          <SelectField
+          <AsyncSelect
             label="Freelancer"
-            value={freelancerId}
-            onChange={setFreelancerId}
-            options={[
-              { value: '', label: 'Selecciona un freelancer…' },
-              ...(freelancers ?? []).map((f) => ({
+            placeholder="Search by name or email, or type an email to invite…"
+            value={invitedEmail ? `invite:${invitedEmail}` : freelancerId}
+            onChange={(value) => {
+              if (value.startsWith('invite:')) {
+                setInvitedEmail(value.slice('invite:'.length));
+                setFreelancerId('');
+              } else {
+                setFreelancerId(value);
+                setInvitedEmail('');
+              }
+            }}
+            fetchOptions={async (search) =>
+              (
+                await api.get<FreelancerDirectoryItem[]>('/users/freelancers', {
+                  params: { search: search || undefined },
+                })
+              ).data.map((f) => ({
                 value: f.id,
                 label: `${f.displayName} (${f.user.email})`,
-              })),
-            ]}
+              }))
+            }
+            extraOption={(query) => {
+              const email = query.trim().toLowerCase();
+              return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
+                ? { value: `invite:${email}`, label: `Invite ${email}` }
+                : null;
+            }}
+            hint="Freelancers you invited or already have a contract with appear here. If they are not listed, type their email to invite them and send the contract."
+            emptyText="No matches. Type an email to invite."
           />
         )}
+        {invitedEmail && (
+          <p className="muted" style={{ marginTop: -6 }}>
+            An invitation will be sent to <b>{invitedEmail}</b> when the contract is
+            created. Once they create an account and connect their wallet, they will
+            see the contract to accept it or request changes.
+          </p>
+        )}
         <Field
-          label="Título"
+          label="Title"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
-          placeholder="Desarrollo de app móvil"
+          placeholder="Mobile app development"
           required
         />
         <TextareaField
-          label="Descripción"
+          label="Description"
           value={description}
           onChange={setDescription}
-          placeholder="Alcance, entregables esperados, condiciones…"
+          placeholder="Scope, expected deliverables, terms…"
           rows={4}
         />
         <Field
-          label="Fecha límite (opcional)"
+          label="Due date (optional)"
           type="date"
           value={deadline}
           onChange={(e) => setDeadline(e.target.value)}
@@ -149,13 +174,13 @@ export function ContractFormPage() {
       </Card>
 
       <Card
-        title={`Milestones — total ${formatUSDC(total)}`}
+        title={`Milestones · total ${formatUSDC(total)}`}
         actions={
           <Button
             variant="secondary"
             onClick={() => setMilestones((prev) => [...prev, emptyMilestone()])}
           >
-            + Agregar milestone
+            + Add milestone
           </Button>
         }
       >
@@ -170,21 +195,21 @@ export function ContractFormPage() {
                     setMilestones((prev) => prev.filter((_, i) => i !== index))
                   }
                 >
-                  Quitar
+                  Remove
                 </Button>
               )}
             </div>
             <div className="form-grid" style={{ marginTop: 10 }}>
               <Field
-                label="Título"
+                label="Title"
                 value={milestone.title}
                 onChange={(e) =>
                   updateMilestone(setMilestones, index, { title: e.target.value })
                 }
-                placeholder="Diseño UI/UX"
+                placeholder="UI/UX design"
               />
               <Field
-                label="Monto (USDC)"
+                label="Amount (USDC)"
                 type="number"
                 min="0"
                 step="0.01"
@@ -195,7 +220,7 @@ export function ContractFormPage() {
                 placeholder="500.00"
               />
               <Field
-                label="Deadline (opcional)"
+                label="Deadline (optional)"
                 type="date"
                 value={milestone.deadline}
                 onChange={(e) =>
@@ -204,7 +229,7 @@ export function ContractFormPage() {
               />
             </div>
             <TextareaField
-              label="Entregables esperados"
+              label="Expected deliverables"
               value={milestone.description}
               onChange={(value) => updateMilestone(setMilestones, index, { description: value })}
               rows={2}
@@ -215,10 +240,10 @@ export function ContractFormPage() {
 
       <div className="row">
         <Button loading={save.isPending} disabled={!valid} onClick={() => save.mutate()}>
-          {isEdit ? 'Guardar cambios' : 'Crear borrador'}
+          {isEdit ? 'Save changes' : 'Create draft'}
         </Button>
         <Button variant="secondary" onClick={() => navigate(-1)}>
-          Cancelar
+          Cancel
         </Button>
       </div>
     </>

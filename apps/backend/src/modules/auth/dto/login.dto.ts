@@ -16,9 +16,13 @@ import {
  * provider and the Stellar wallet address Pollar created/linked.
  */
 export class LoginDto {
-  @ApiProperty({ example: 'maria@empresa.com' })
+  @ApiPropertyOptional({
+    example: 'maria@company.com',
+    description: 'Required only on first registration; returning users match by wallet',
+  })
+  @IsOptional()
   @IsEmail()
-  email!: string;
+  email?: string;
 
   @ApiProperty({ enum: AuthProvider, example: AuthProvider.google })
   @IsEnum(AuthProvider)
@@ -40,6 +44,17 @@ export class LoginDto {
   pollarWalletId?: string;
 
   @ApiPropertyOptional({
+    description:
+      'Signed challenge transaction (XDR) for self-custodial wallet login ' +
+      '(Stellar Wallets Kit). Its presence selects the wallet-signature auth ' +
+      'path instead of Pollar verification.',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(8192)
+  walletAuthXdr?: string;
+
+  @ApiPropertyOptional({
     enum: UserRole,
     description: 'Required on first login (registration); ignored afterwards',
   })
@@ -47,7 +62,7 @@ export class LoginDto {
   @IsEnum(UserRole)
   role?: UserRole;
 
-  @ApiPropertyOptional({ example: 'María Pérez' })
+  @ApiPropertyOptional({ example: 'Maria Perez' })
   @IsOptional()
   @IsString()
   @MaxLength(120)

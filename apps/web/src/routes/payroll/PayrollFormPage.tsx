@@ -17,18 +17,18 @@ import {
 
 interface ItemDraft {
   recipientUserId: string;
-  recipientAddress: string;
-  recipientLabel: string;
   amount: string;
 }
 
 const emptyItem = (): ItemDraft => ({
   recipientUserId: '',
-  recipientAddress: '',
-  recipientLabel: '',
   amount: '',
 });
 
+/**
+ * Form to create or edit a payroll: name, frequency and a list of fixed-employee
+ * recipients with their amounts. Submits to create or update the payroll.
+ */
 export function PayrollFormPage() {
   const { id } = useParams<{ id: string }>();
   const isEdit = Boolean(id);
@@ -58,14 +58,14 @@ export function PayrollFormPage() {
     setItems(
       existing.items.map((item) => ({
         recipientUserId: item.recipientUserId ?? '',
-        recipientAddress: item.recipientUserId ? '' : item.recipientAddress,
-        recipientLabel: item.recipientLabel ?? '',
         amount: item.amount,
       })),
     );
   }, [existing]);
 
   const total = items.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+  // Only registered fixed employees who have already connected a wallet can be paid.
+  const payableEmployees = (employees ?? []).filter((e) => e.stellarAddress);
 
   const save = useMutation({
     mutationFn: async () => {
@@ -73,11 +73,7 @@ export function PayrollFormPage() {
         name: name.trim(),
         frequency,
         items: items.map((item) => ({
-          recipientUserId: item.recipientUserId || undefined,
-          recipientAddress: item.recipientUserId
-            ? undefined
-            : item.recipientAddress.trim(),
-          recipientLabel: item.recipientLabel.trim() || undefined,
+          recipientUserId: item.recipientUserId,
           amount: item.amount,
         })),
       };
@@ -90,103 +86,82 @@ export function PayrollFormPage() {
     onError: (err) => pushToast(apiErrorMessage(err)),
   });
 
-  if (isEdit && isLoading) return <Spinner label="Cargando planilla…" />;
+  if (isEdit && isLoading) return <Spinner label="Loading payroll…" />;
 
   const valid =
     name.trim().length >= 3 &&
     items.length > 0 &&
-    items.every(
-      (item) =>
-        Number(item.amount) > 0 &&
-        (item.recipientUserId || /^G[A-Z2-7]{55}$/.test(item.recipientAddress.trim())),
-    );
+    items.every((item) => Number(item.amount) > 0 && item.recipientUserId !== '');
 
   return (
     <>
       <PageHeader
-        title={isEdit ? 'Editar planilla' : 'Nueva planilla'}
-        subtitle="Empleados fijos de la plataforma o wallets Stellar externas"
+        title={isEdit ? 'Edit payroll' : 'New payroll'}
+        subtitle="Recurring payments to your registered fixed employees"
       />
 
-      <Card title="Datos">
+      <Card title="Details">
         <Field
-          label="Nombre"
+          label="Name"
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="Nómina equipo core"
+          placeholder="Core team payroll"
         />
         <SelectField
-          label="Frecuencia"
+          label="Frequency"
           value={frequency}
           onChange={(value) => setFrequency(value as PayrollFrequency)}
           options={[
-            { value: PayrollFrequency.Weekly, label: 'Semanal' },
-            { value: PayrollFrequency.Biweekly, label: 'Quincenal' },
-            { value: PayrollFrequency.Monthly, label: 'Mensual' },
+            { value: PayrollFrequency.Weekly, label: 'Weekly' },
+            { value: PayrollFrequency.Biweekly, label: 'Biweekly' },
+            { value: PayrollFrequency.Monthly, label: 'Monthly' },
           ]}
         />
       </Card>
 
       <Card
-        title={`Destinatarios — total ${formatUSDC(total)}`}
+        title={`Recipients · total ${formatUSDC(total)}`}
         actions={
           <Button variant="secondary" onClick={() => setItems((p) => [...p, emptyItem()])}>
-            + Agregar destinatario
+            + Add recipient
           </Button>
         }
       >
+        {payableEmployees.length === 0 && (
+          <p className="muted" style={{ marginBottom: 12 }}>
+            You don't have any fixed employees with a connected wallet yet. Invite
+            them by email as a "fixed employee"; once they sign in and connect their
+            wallet you can add them to the payroll.
+          </p>
+        )}
         {items.map((item, index) => (
           <div key={index} className="milestone">
             <div className="row" style={{ justifyContent: 'space-between' }}>
-              <strong>Destinatario {index + 1}</strong>
+              <strong>Recipient {index + 1}</strong>
               {items.length > 1 && (
                 <Button
                   variant="ghost"
                   onClick={() => setItems((prev) => prev.filter((_, i) => i !== index))}
                 >
-                  Quitar
+                  Remove
                 </Button>
               )}
             </div>
             <div className="form-grid" style={{ marginTop: 10 }}>
               <SelectField
-                label="Empleado de la plataforma"
+                label="Fixed employee"
                 value={item.recipientUserId}
                 onChange={(value) => patchItem(setItems, index, { recipientUserId: value })}
                 options={[
-                  { value: '', label: 'Wallet externa…' },
-                  ...(employees ?? []).map((emp) => ({
+                  { value: '', label: 'Select an employee…' },
+                  ...payableEmployees.map((emp) => ({
                     value: emp.id,
-                    label: `${emp.name ?? emp.email}${emp.stellarAddress ? '' : ' (sin wallet)'}`,
+                    label: emp.name ?? emp.email,
                   })),
                 ]}
               />
-              {!item.recipientUserId && (
-                <Field
-                  label="Wallet Stellar (G…)"
-                  value={item.recipientAddress}
-                  onChange={(e) =>
-                    patchItem(setItems, index, { recipientAddress: e.target.value })
-                  }
-                  placeholder="G…"
-                  error={
-                    item.recipientAddress &&
-                    !/^G[A-Z2-7]{55}$/.test(item.recipientAddress.trim())
-                      ? 'Dirección Stellar inválida'
-                      : undefined
-                  }
-                />
-              )}
               <Field
-                label="Etiqueta"
-                value={item.recipientLabel}
-                onChange={(e) =>
-                  patchItem(setItems, index, { recipientLabel: e.target.value })
-                }
-                placeholder="Juan — DevOps"
-              />
-              <Field
-                label="Monto (USDC)"
+                label="Amount (USDC)"
                 type="number"
                 min="0"
                 step="0.01"
@@ -200,16 +175,17 @@ export function PayrollFormPage() {
 
       <div className="row">
         <Button loading={save.isPending} disabled={!valid} onClick={() => save.mutate()}>
-          {isEdit ? 'Guardar cambios' : 'Crear planilla'}
+          {isEdit ? 'Save changes' : 'Create payroll'}
         </Button>
         <Button variant="secondary" onClick={() => navigate(-1)}>
-          Cancelar
+          Cancel
         </Button>
       </div>
     </>
   );
 }
 
+/** Updates a single recipient draft at the given index with a partial patch. */
 function patchItem(
   set: React.Dispatch<React.SetStateAction<ItemDraft[]>>,
   index: number,

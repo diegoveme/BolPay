@@ -1,14 +1,34 @@
-/// Utilidades de formato (montos USDC y fechas) sin dependencias externas.
+/// Formatting utilities (USDC amounts, dates, addresses) with no external
+/// dependencies. English (en-US) locale, matching the web app.
 library;
 
-/// Formatea un monto decimal en string (p. ej. "1500.500000") como USDC.
+const List<String> _months = [
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
+];
+
+/// Placeholder used by the web app for missing values.
+const String emptyPlaceholder = '·';
+
+/// Formats a decimal string amount (e.g. "1500.500000") as "1,500.50 USDC".
+///
+/// Null or empty values render as the `·` placeholder, like the web.
 String formatUsdc(String? amount) {
-  if (amount == null || amount.isEmpty) return '—';
+  if (amount == null || amount.isEmpty) return emptyPlaceholder;
   final value = double.tryParse(amount);
   if (value == null) return '$amount USDC';
-  var text = value.toStringAsFixed(2);
-  // Separador de miles simple.
-  final parts = text.split('.');
+  final fixed = value.toStringAsFixed(2);
+  final parts = fixed.split('.');
   final digits = parts[0];
   final buffer = StringBuffer();
   for (var i = 0; i < digits.length; i++) {
@@ -18,24 +38,52 @@ String formatUsdc(String? amount) {
       buffer.write(',');
     }
   }
-  text = '$buffer.${parts[1]}';
-  return '$text USDC';
+  return '$buffer.${parts[1]} USDC';
 }
 
-/// Formatea una fecha ISO-8601 como "dd/mm/aaaa hh:mm" (hora local).
-String formatDateTime(String? iso) {
-  if (iso == null || iso.isEmpty) return '';
+/// Formats an ISO-8601 date as "Jun 9, 2026" (local time).
+String formatDate(String? iso) {
+  if (iso == null || iso.isEmpty) return emptyPlaceholder;
   final date = DateTime.tryParse(iso)?.toLocal();
   if (date == null) return iso;
-  String two(int n) => n.toString().padLeft(2, '0');
-  return '${two(date.day)}/${two(date.month)}/${date.year} '
-      '${two(date.hour)}:${two(date.minute)}';
+  return '${_months[date.month - 1]} ${date.day}, ${date.year}';
 }
 
-/// Acorta una dirección Stellar: GABC…WXYZ.
+/// Formats an ISO-8601 date as "Jun 9, 2026, 12:00 PM" (local time).
+String formatDateTime(String? iso) {
+  if (iso == null || iso.isEmpty) return emptyPlaceholder;
+  final date = DateTime.tryParse(iso)?.toLocal();
+  if (date == null) return iso;
+  final hour12 = date.hour % 12 == 0 ? 12 : date.hour % 12;
+  final minute = date.minute.toString().padLeft(2, '0');
+  final period = date.hour < 12 ? 'AM' : 'PM';
+  return '${_months[date.month - 1]} ${date.day}, ${date.year}, '
+      '$hour12:$minute $period';
+}
+
+/// Compact relative time: "just now", "5m ago", "3h ago", "2d ago",
+/// then falls back to [formatDate].
+String relativeTime(String? iso) {
+  if (iso == null || iso.isEmpty) return emptyPlaceholder;
+  final date = DateTime.tryParse(iso)?.toLocal();
+  if (date == null) return iso;
+  final diff = DateTime.now().difference(date);
+  if (diff.inSeconds < 60) return 'just now';
+  if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+  if (diff.inHours < 24) return '${diff.inHours}h ago';
+  if (diff.inDays < 7) return '${diff.inDays}d ago';
+  return formatDate(iso);
+}
+
+/// Shortens a Stellar address or tx hash: first 6 + ellipsis + last 6.
 String shortAddress(String address) {
   if (address.length <= 12) return address;
-  return '${address.substring(0, 6)}…${address.substring(address.length - 6)}';
+  return '${address.substring(0, 6)}…'
+      '${address.substring(address.length - 6)}';
 }
 
+/// Stellar public key (G-address) format.
 final RegExp stellarAddressRegExp = RegExp(r'^G[A-Z2-7]{55}$');
+
+/// Loose email format used by forms and the invite-by-email affordance.
+final RegExp emailRegExp = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');

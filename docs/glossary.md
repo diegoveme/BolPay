@@ -1,27 +1,31 @@
 # Glossary
 
-Definitions of the domain and technical terms used throughout the BolPay
-documentation.
+Domain and technical terms used across BolPay's documentation and code.
 
 | Term | Definition |
 |---|---|
-| **Activity log** | An append-only record of significant domain events, such as contract creation, milestone approval, and payroll execution. |
-| **Administrator** | A platform operator who monitors escrows and resolves escalated disputes. |
-| **Company** | An organization that creates contracts, manages milestones, and administers payroll. |
-| **Contract** | A formal agreement between a company and a freelancer, defined by a total amount and one or more milestones. |
-| **Deliverable** | A versioned submission (file or link) provided by a freelancer to fulfill a milestone. |
-| **Dispute** | A conflict raised on a milestone that pauses it and locks its funds until resolved. |
-| **Escrow** | A funds-holding arrangement that locks money until predefined conditions are met. In BolPay, escrows are provided by Trustless Work. |
-| **Escrow as a Service (EaaS)** | A model in which escrow primitives (create, fund, release, refund) are consumed from an external provider rather than implemented in-house. |
-| **Fixed employee** | A recurring payment recipient paid through the payroll module. |
-| **Freelancer** | A remote worker who accepts contracts, submits deliverables, and receives milestone payments. |
-| **Milestone** | A funded checkpoint within a contract, with an assigned amount and deadline, released upon approval. |
-| **Payroll** | A recurring distribution schedule that pays a set of recipients automatically on a configured frequency. |
-| **Payroll execution** | A single run of a payroll schedule, producing one or more on-chain distributions. |
-| **Soroban** | The smart-contract platform on the Stellar network. |
-| **Stellar** | The blockchain network used by BolPay for settlement. |
-| **Testnet** | A test version of the Stellar network used for development and testing without real funds. |
-| **Transaction hash** | A unique identifier of a confirmed on-chain transaction, used as the source of truth for settlement. |
-| **Trustless Work** | The Escrow as a Service provider that orchestrates escrows on Stellar for BolPay. |
-| **USDC** | A US-dollar-pegged stablecoin used as the settlement asset in BolPay. |
-| **Wallet** | A Stellar account that holds funds and signs transactions. A connected wallet is required to operate in BolPay. |
+| **Activity log** | Append-only record of a domain event (e.g. registration, wallet link) kept for auditing. |
+| **Company** | Role that creates contracts, approves deliverables, and runs payroll. |
+| **Contract** | Agreement between a company and a freelancer, composed of milestones with a total amount. |
+| **Custodial wallet** | A Stellar wallet whose keys are managed on the user's behalf by Pollar. |
+| **Deliverable** | A versioned submission (file and/or link) attached to a milestone for review. |
+| **Dispute** | A contested milestone that pauses release and locks funds until resolved. |
+| **Escrow** | A Trustless Work (Soroban) contract that locks funds until release conditions are met. |
+| **Escrow mode** | Runtime setting (`simulated` or `trustless_work`) selecting how settlement is performed. |
+| **Fixed employee** | Role paid through recurring payroll rather than per-contract milestones. |
+| **Freelancer** | Role that accepts contracts, submits deliverables, and receives milestone payments. |
+| **Invitation** | A tokenized email that binds an address to a role until accepted or expired. |
+| **JWT** | JSON Web Token issued by the backend to authorize API requests after Pollar login. |
+| **Milestone** | An ordered, independently releasable unit of work within a contract. |
+| **Multi-release escrow** | An escrow that releases funds in tranches (one per milestone). |
+| **Payroll** | A recurring payment schedule distributing USDC to multiple recipients. |
+| **Payroll execution** | A single run of a payroll that distributes funds and records transactions. |
+| **Pollar** | Wallet-onboarding SDK for Stellar; provides authentication and custodial wallets. |
+| **Resend** | Transactional email provider used for email verification and invitations. |
+| **Soroban** | Stellar's smart-contract platform, on which Trustless Work escrows run. |
+| **Stellar** | The layer-1 blockchain network used for settlement. |
+| **Testnet** | Stellar's test network used during development (no real value). |
+| **Transaction** | An audit record of an on-chain operation with its Stellar hash. |
+| **Trustless Work** | Escrow-as-a-service provider offering non-custodial, auditable escrow contracts. |
+| **Trustline** | A Stellar ledger entry authorizing an account to hold a given asset (e.g. USDC). |
+| **USDC** | A US-dollar stablecoin used as the unit of account; a native asset on Stellar. |

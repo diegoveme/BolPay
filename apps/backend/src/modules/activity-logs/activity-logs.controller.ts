@@ -11,11 +11,13 @@ import { ActivityLogsService } from './activity-logs.service';
 export class ActivityLogsController {
   constructor(private readonly activityLogs: ActivityLogsService) {}
 
+  /** List the caller's own activity log entries. */
   @Get()
   listMine(@CurrentUser() user: AuthUser) {
     return this.activityLogs.listForUser(user.id);
   }
 
+  /** List the platform-wide activity feed (administrators only). */
   @Get('all')
   @Roles('administrator')
   listAll() {

@@ -17,6 +17,7 @@ import {
   Spinner,
 } from '@/components/ui';
 
+/** Disputes list: paused milestones with funds locked until they are resolved. */
 export function DisputesPage() {
   const navigate = useNavigate();
   const { data, isLoading, error } = useQuery({
@@ -27,29 +28,29 @@ export function DisputesPage() {
   return (
     <>
       <PageHeader
-        title="Disputas"
-        subtitle="Milestones pausados con fondos bloqueados hasta su resolución"
+        title="Disputes"
+        subtitle="Paused milestones with funds locked until they are resolved"
       />
       <Card>
         {isLoading ? (
-          <Spinner label="Cargando disputas…" />
+          <Spinner label="Loading disputes…" />
         ) : error ? (
           <ErrorState message={apiErrorMessage(error)} />
         ) : !data || data.length === 0 ? (
           <EmptyState
-            title="No hay disputas"
-            hint="Puedes abrir una desde el detalle de un milestone."
+            title="No disputes"
+            hint="You can open one from a milestone's detail view."
           />
         ) : (
           <table className="table table--clickable">
             <thead>
               <tr>
                 <th>Milestone</th>
-                <th>Contrato</th>
-                <th>Monto</th>
-                <th>Abierta por</th>
-                <th>Estado</th>
-                <th>Fecha</th>
+                <th>Contract</th>
+                <th>Amount</th>
+                <th>Opened by</th>
+                <th>Status</th>
+                <th>Date</th>
               </tr>
             </thead>
             <tbody>

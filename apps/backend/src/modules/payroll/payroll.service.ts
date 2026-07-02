@@ -15,9 +15,9 @@ import { ActivityLogsService } from '../activity-logs/activity-logs.service';
 import { EscrowService } from '../escrow/escrow.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import type { AuthUser } from '../../common/types/auth';
+import { sumAmounts } from '../../common/decimal.util';
 import {
   CreatePayrollDto,
-  FundPayrollDto,
   PayrollItemInputDto,
   UpdatePayrollDto,
 } from './dto/payroll.dto';
@@ -46,10 +46,10 @@ type LoadedPayroll = Prisma.PayrollGetPayload<{
 const EDITABLE: PayrollStatus[] = ['draft', 'active', 'paused'];
 
 /**
- * On-chain payroll (docs §6). Lifecycle per cycle:
- *   draft → (fund: escrow deployed+funded, nextRun set) funded
- *   funded → (scheduler/manual run) executed → active (awaiting next funding)
- *   active → (fund again) funded → ...      pause/resume at any point.
+ * On-chain payroll. Lifecycle per cycle:
+ *   draft -> (fund: escrow deployed+funded, nextRun set) funded
+ *   funded -> (scheduler/manual run) executed -> active (awaiting next funding)
+ *   active -> (fund again) funded -> ...      pause/resume at any point.
  */
 @Injectable()
 export class PayrollService {
@@ -64,6 +64,7 @@ export class PayrollService {
 
   // -- CRUD ----------------------------------------------------------------------
 
+  /** Create a draft payroll for the caller's company with its recipients. */
   async create(user: AuthUser, dto: CreatePayrollDto) {
     const company = await this.requireCompanyProfile(user.id);
     const items = await this.resolveItems(dto.items);
@@ -84,11 +85,20 @@ export class PayrollService {
     return payroll;
   }
 
+  /** Update a payroll's name, frequency or recipients (not allowed while funded). */
   async update(id: string, user: AuthUser, dto: UpdatePayrollDto) {
     const payroll = await this.requireOwned(id, user);
+    // A funded cycle locks the on-chain escrow (roles/amounts are immutable in
+    // Trustless Work once funded), so the plan cannot be edited while a funded
+    // escrow is attached - even if it was paused. Archive (refund) to change it.
+    if (payroll.escrowId && payroll.escrow?.status === 'funded') {
+      throw new BadRequestException(
+        'You cannot edit a payroll with a funded cycle. Archive it (with a refund) and create a new one.',
+      );
+    }
     if (!EDITABLE.includes(payroll.status)) {
       throw new BadRequestException(
-        `Cannot edit a payroll in status "${payroll.status}" (cycle already funded)`,
+        `Cannot edit a payroll in status "${payroll.status}"`,
       );
     }
     const items = dto.items ? await this.resolveItems(dto.items) : undefined;
@@ -103,6 +113,7 @@ export class PayrollService {
     });
   }
 
+  /** List payrolls for the caller's company (all payrolls for administrators). */
   async list(user: AuthUser) {
     if (user.role === 'administrator') {
       return this.prisma.payroll.findMany({
@@ -118,6 +129,7 @@ export class PayrollService {
     });
   }
 
+  /** Load a single payroll, enforcing company ownership (or admin access). */
   async findById(id: string, user: AuthUser) {
     const payroll = await this.loadById(id);
     if (payroll.company.userId !== user.id && user.role !== 'administrator') {
@@ -128,35 +140,64 @@ export class PayrollService {
 
   // -- Cycle lifecycle -------------------------------------------------------------
 
-  /** Fund the upcoming cycle: escrow deployed + funded, run scheduled. */
-  async fund(id: string, user: AuthUser, dto: FundPayrollDto) {
+  /** Non-custodial fund - step 1: deploy the cycle escrow + return fund XDR. */
+  async prepareFund(id: string, user: AuthUser) {
     const payroll = await this.requireOwned(id, user);
-    if (!EDITABLE.includes(payroll.status)) {
-      throw new BadRequestException(
-        `Payroll cycle already funded (status "${payroll.status}")`,
-      );
+    if (payroll.escrow?.status === 'funded') {
+      throw new BadRequestException('Payroll cycle already funded');
     }
     if (payroll.items.length === 0) {
       throw new BadRequestException('Payroll has no recipients');
     }
+    const companyUser = await this.prisma.user.findUnique({
+      where: { id: payroll.company.userId },
+      select: { stellarAddress: true },
+    });
+    const companyAddress = companyUser?.stellarAddress;
+    if (!companyAddress) {
+      throw new BadRequestException('Connect your wallet to fund the payroll');
+    }
+    let escrow = payroll.escrow;
+    if (!escrow) {
+      escrow = await this.escrowService.deployPayrollEscrow(
+        payroll.id,
+        payroll.name,
+        payroll.items,
+      );
+      await this.prisma.payroll.update({
+        where: { id },
+        data: { escrowId: escrow.id },
+      });
+    }
+    const total = sumAmounts(payroll.items);
+    return this.escrowService.prepareContractFund(escrow, companyAddress, total);
+  }
 
-    const escrow = await this.escrowService.createAndFundPayrollEscrow(
-      payroll.id,
-      payroll.name,
-      payroll.items,
-    );
-    const nextRun = dto.firstRun
-      ? new Date(dto.firstRun)
+  /** Non-custodial fund - step 2: record the fund and schedule the run. */
+  async confirmFund(
+    id: string,
+    user: AuthUser,
+    txHash?: string,
+    firstRun?: string,
+  ) {
+    const payroll = await this.requireOwned(id, user);
+    if (payroll.status === 'funded') return payroll;
+    if (!payroll.escrow) {
+      throw new BadRequestException('Prepare the fund first');
+    }
+    const total = sumAmounts(payroll.items);
+    await this.escrowService.confirmContractFund(payroll.escrow, total, txHash);
+    const nextRun = firstRun
+      ? new Date(firstRun)
       : this.advance(new Date(), payroll.frequency);
-
     const updated = await this.prisma.payroll.update({
       where: { id },
-      data: { escrowId: escrow.id, status: 'funded', nextRun },
+      data: { status: 'funded', nextRun },
       include: PAYROLL_INCLUDE,
     });
     await this.activityLogs.record(user.id, 'payroll.funded', {
       payrollId: id,
-      escrowId: escrow.id,
+      escrowId: payroll.escrow.id,
       nextRun: nextRun.toISOString(),
     });
     return updated;
@@ -168,6 +209,7 @@ export class PayrollService {
     return this.execute(payroll);
   }
 
+  /** Pause an active or funded payroll so the scheduler skips it. */
   async pause(id: string, user: AuthUser) {
     const payroll = await this.requireOwned(id, user);
     if (payroll.status !== 'funded' && payroll.status !== 'active') {
@@ -182,6 +224,7 @@ export class PayrollService {
     });
   }
 
+  /** Resume a paused payroll (back to funded if its cycle escrow is still loaded). */
   async resume(id: string, user: AuthUser) {
     const payroll = await this.requireOwned(id, user);
     if (payroll.status !== 'paused') {
@@ -196,6 +239,7 @@ export class PayrollService {
     });
   }
 
+  /** Mark a payroll as completed and clear its schedule (not allowed while funded). */
   async archive(id: string, user: AuthUser) {
     const payroll = await this.requireOwned(id, user);
     if (payroll.status === 'funded') {
@@ -232,10 +276,21 @@ export class PayrollService {
 
   /**
    * Distribute the funded cycle to every recipient wallet, registering one
-   * Stellar transaction per item (docs §6).
+   * Stellar transaction per item.
    */
   private async execute(payroll: LoadedPayroll) {
-    if (payroll.status !== 'funded' || !payroll.escrow) {
+    if (!payroll.escrow) {
+      throw new BadRequestException('Payroll cycle is not funded');
+    }
+
+    // Atomic claim: flip funded -> active up front. A concurrent second run
+    // (manual + scheduler, or two overlapping ticks) then sees status !==
+    // 'funded', claims 0 rows and aborts here, so the cycle is released once.
+    const claimed = await this.prisma.payroll.updateMany({
+      where: { id: payroll.id, status: 'funded' },
+      data: { status: 'active' },
+    });
+    if (claimed.count !== 1) {
       throw new BadRequestException('Payroll cycle is not funded');
     }
 
@@ -259,7 +314,7 @@ export class PayrollService {
           await this.notifications.notify(
             item.recipientUserId,
             'payroll_payment_received',
-            `Pago de nómina recibido: ${item.amount.toString()} USDC (${payroll.name})`,
+            `Payroll payment received: ${item.amount.toString()} USDC (${payroll.name})`,
             { payrollId: payroll.id, executionId: execution.id },
           );
         }
@@ -284,15 +339,23 @@ export class PayrollService {
       }),
       this.prisma.payroll.update({
         where: { id: payroll.id },
-        data: {
-          // Next cycle requires funding again; advance the schedule.
-          status: status === 'failed' ? 'funded' : 'active',
-          nextRun: this.advance(
-            payroll.nextRun ?? new Date(),
-            payroll.frequency,
-          ),
-          ...(status === 'failed' ? {} : { escrowId: null }),
-        },
+        data:
+          status === 'failed'
+            ? // Fully failed: undo the up-front claim (back to 'funded'), keep
+              // the escrow and DO NOT advance nextRun so the scheduler retries
+              // the same due cycle.
+              { status: 'funded' }
+            : // Succeeded/partial: already 'active' from the claim. The next
+              // cycle requires funding again, so drop the escrow and advance the
+              // schedule.
+              {
+                status: 'active',
+                escrowId: null,
+                nextRun: this.advance(
+                  payroll.nextRun ?? new Date(),
+                  payroll.frequency,
+                ),
+              },
         include: PAYROLL_INCLUDE,
       }),
     ]);
@@ -300,7 +363,7 @@ export class PayrollService {
     await this.notifications.notify(
       payroll.company.userId,
       'payroll_executed',
-      `Planilla "${payroll.name}" ejecutada (${succeeded}/${payroll.items.length} pagos, ${total.toString()} USDC)`,
+      `Payroll "${payroll.name}" executed (${succeeded}/${payroll.items.length} payments, ${total.toString()} USDC)`,
       { payrollId: payroll.id, executionId: execution.id, status },
     );
     await this.activityLogs.record(payroll.company.userId, 'payroll.executed', {

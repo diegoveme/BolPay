@@ -10,30 +10,31 @@ import {
   MaxLength,
   MinLength,
 } from 'class-validator';
+import { AMOUNT_PATTERN } from '../../../common/constants';
 
-const AMOUNT_PATTERN = /^\d{1,13}(\.\d{1,7})?$/;
-
+/** Payload to open a dispute on a milestone. */
 export class OpenDisputeDto {
   @ApiProperty({ description: 'Milestone under dispute' })
   @IsUUID()
   milestoneId!: string;
 
-  @ApiProperty({ example: 'La entrega no cumple los criterios acordados' })
+  @ApiProperty({ example: 'The deliverable does not meet the agreed criteria' })
   @IsString()
   @MinLength(10)
   @MaxLength(2000)
   reason!: string;
 }
 
+/** Payload to add a file or comment as evidence on a dispute. */
 export class AddEvidenceDto {
-  @ApiPropertyOptional({ example: 'https://storage.example.com/captura.png' })
+  @ApiPropertyOptional({ example: 'https://storage.example.com/screenshot.png' })
   @IsOptional()
   @IsUrl({ require_tld: false })
   @MaxLength(2000)
   fileUrl?: string;
 
   @ApiPropertyOptional({
-    example: 'El requerimiento X estaba en el anexo del contrato',
+    example: 'Requirement X was listed in the contract annex',
   })
   @IsOptional()
   @IsString()
@@ -41,6 +42,7 @@ export class AddEvidenceDto {
   comment?: string;
 }
 
+/** Payload to resolve a dispute and define the on-chain distribution. */
 export class ResolveDisputeDto {
   @ApiProperty({ enum: DisputeOutcome })
   @IsEnum(DisputeOutcome)
@@ -63,7 +65,7 @@ export class ResolveDisputeDto {
   companyAmount?: string;
 
   @ApiPropertyOptional({
-    example: 'Acuerdo: 60% del milestone por trabajo parcial',
+    example: 'Agreement: 60% of the milestone for partial work',
   })
   @IsOptional()
   @IsString()

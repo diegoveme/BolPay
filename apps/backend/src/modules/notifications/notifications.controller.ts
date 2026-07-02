@@ -21,6 +21,7 @@ import { NotificationsService } from './notifications.service';
 export class NotificationsController {
   constructor(private readonly notifications: NotificationsService) {}
 
+  /** List the caller's notifications, optionally filtering to unread. */
   @Get()
   list(
     @CurrentUser() user: AuthUser,
@@ -38,6 +39,7 @@ export class NotificationsController {
     return this.notifications.stream(user.id);
   }
 
+  /** Mark a single notification as read. */
   @Post(':id/read')
   markRead(
     @Param('id', ParseUUIDPipe) id: string,
@@ -46,6 +48,7 @@ export class NotificationsController {
     return this.notifications.markRead(id, user.id);
   }
 
+  /** Mark all of the caller's notifications as read. */
   @Post('read-all')
   markAllRead(@CurrentUser() user: AuthUser) {
     return this.notifications.markAllRead(user.id);

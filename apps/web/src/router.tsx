@@ -1,7 +1,10 @@
 import { createBrowserRouter } from 'react-router-dom';
 import { RequireAuth, RequireRole } from '@/auth/RequireAuth';
 import { AppLayout } from '@/routes/AppLayout';
+import { LandingPage } from '@/routes/landing/LandingPage';
 import { LoginPage } from '@/routes/LoginPage';
+import { VerifyEmailPage } from '@/routes/VerifyEmailPage';
+import { AcceptInvitePage } from '@/routes/AcceptInvitePage';
 import { DashboardPage } from '@/routes/DashboardPage';
 import { ContractsPage } from '@/routes/contracts/ContractsPage';
 import { ContractDetailPage } from '@/routes/contracts/ContractDetailPage';
@@ -16,7 +19,10 @@ import { ProfilePage } from '@/routes/ProfilePage';
 import { AdminPage } from '@/routes/admin/AdminPage';
 
 export const router = createBrowserRouter([
+  { path: '/landing', element: <LandingPage /> },
   { path: '/login', element: <LoginPage /> },
+  { path: '/verify-email', element: <VerifyEmailPage /> },
+  { path: '/accept-invite', element: <AcceptInvitePage /> },
   {
     element: <RequireAuth />,
     children: [

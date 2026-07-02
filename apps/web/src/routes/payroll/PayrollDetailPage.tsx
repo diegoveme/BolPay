@@ -9,25 +9,32 @@ import {
   payrollStatusLabel,
   payrollStatusTone,
   shortAddress,
-  stellarExpertTxUrl,
+  stellarTxUrl,
 } from '@/lib/format';
 import { useNotificationsUi } from '@/notifications/NotificationsContext';
+import { useWalletSign } from '@/lib/useWalletSign';
 import {
   Badge,
   Button,
   Card,
+  ConfirmModal,
   ErrorState,
-  Field,
-  Modal,
   PageHeader,
   Spinner,
 } from '@/components/ui';
+import { FundModal } from './FundModal';
 
+/**
+ * Shows a single payroll: cycle info, recipients and execution history, with
+ * actions to edit, fund, run, pause/resume and archive the payroll.
+ */
 export function PayrollDetailPage() {
   const { id } = useParams<{ id: string }>();
   const queryClient = useQueryClient();
   const { pushToast } = useNotificationsUi();
   const [showFund, setShowFund] = useState(false);
+  const [confirmExecute, setConfirmExecute] = useState(false);
+  const [confirmArchive, setConfirmArchive] = useState(false);
 
   const { data: payroll, isLoading, error } = useQuery({
     queryKey: ['payrolls', id],
@@ -44,7 +51,28 @@ export function PayrollDetailPage() {
     onError: (err) => pushToast(apiErrorMessage(err)),
   });
 
-  if (isLoading) return <Spinner label="Cargando planilla…" />;
+  // Non-custodial funding: the company signs the fund XDR with its own wallet.
+  const sign = useWalletSign();
+  const fundMutation = useMutation({
+    mutationFn: async (firstRun: string) => {
+      const { data } = await api.post<{ unsignedXdr: string | null }>(
+        `/payrolls/${id}/fund/prepare`,
+      );
+      const txHash = data.unsignedXdr ? await sign(data.unsignedXdr) : undefined;
+      return api.post(`/payrolls/${id}/fund/confirm`, {
+        ...(txHash ? { txHash } : {}),
+        ...(firstRun ? { firstRun: new Date(firstRun).toISOString() } : {}),
+      });
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['payrolls'] });
+      setShowFund(false);
+      pushToast('Payroll escrow funded');
+    },
+    onError: (err) => pushToast(apiErrorMessage(err)),
+  });
+
+  if (isLoading) return <Spinner label="Loading payroll…" />;
   if (error || !payroll) return <ErrorState message={apiErrorMessage(error)} />;
 
   const total = payroll.items.reduce((sum, item) => sum + Number(item.amount), 0);
@@ -54,7 +82,7 @@ export function PayrollDetailPage() {
     <>
       <PageHeader
         title={payroll.name}
-        subtitle={`${payroll.items.length} destinatarios · ${formatUSDC(total)} por ciclo`}
+        subtitle={`${payroll.items.length} recipients · ${formatUSDC(total)} per cycle`}
         actions={
           <Badge tone={payrollStatusTone[payroll.status]}>
             {payrollStatusLabel[payroll.status]}
@@ -62,20 +90,20 @@ export function PayrollDetailPage() {
         }
       />
 
-      <Card title="Ciclo">
+      <Card title="Cycle">
         <div className="row" style={{ gap: 24 }}>
           <div>
-            <p className="muted" style={{ fontSize: 13 }}>Próxima ejecución</p>
+            <p className="muted" style={{ fontSize: 13 }}>Next run</p>
             <p>{formatDateTime(payroll.nextRun)}</p>
           </div>
           {payroll.escrow && (
             <>
               <div>
-                <p className="muted" style={{ fontSize: 13 }}>Escrow del ciclo</p>
+                <p className="muted" style={{ fontSize: 13 }}>Cycle escrow</p>
                 <p className="mono">{shortAddress(payroll.escrow.trustlessWorkId)}</p>
               </div>
               <div>
-                <p className="muted" style={{ fontSize: 13 }}>Fondeado</p>
+                <p className="muted" style={{ fontSize: 13 }}>Funded</p>
                 <p>{formatUSDC(payroll.escrow.fundedAmount)}</p>
               </div>
             </>
@@ -86,18 +114,13 @@ export function PayrollDetailPage() {
           {canEdit && (
             <>
               <Link to={`/payrolls/${payroll.id}/edit`} className="btn btn--secondary">
-                Editar
+                Edit
               </Link>
-              <Button onClick={() => setShowFund(true)}>Fondear ciclo</Button>
+              <Button onClick={() => setShowFund(true)}>Fund cycle</Button>
             </>
           )}
           {payroll.status === 'funded' && (
-            <Button
-              loading={action.isPending}
-              onClick={() => action.mutate({ path: 'execute' })}
-            >
-              Ejecutar ahora
-            </Button>
+            <Button onClick={() => setConfirmExecute(true)}>Run now</Button>
           )}
           {(payroll.status === 'funded' || payroll.status === 'active') && (
             <Button
@@ -105,7 +128,7 @@ export function PayrollDetailPage() {
               loading={action.isPending}
               onClick={() => action.mutate({ path: 'pause' })}
             >
-              Pausar
+              Pause
             </Button>
           )}
           {payroll.status === 'paused' && (
@@ -113,28 +136,24 @@ export function PayrollDetailPage() {
               loading={action.isPending}
               onClick={() => action.mutate({ path: 'resume' })}
             >
-              Reanudar
+              Resume
             </Button>
           )}
           {payroll.status !== 'funded' && payroll.status !== 'completed' && (
-            <Button
-              variant="ghost"
-              loading={action.isPending}
-              onClick={() => action.mutate({ path: 'archive' })}
-            >
-              Archivar
+            <Button variant="ghost" onClick={() => setConfirmArchive(true)}>
+              Archive
             </Button>
           )}
         </div>
       </Card>
 
-      <Card title="Destinatarios">
+      <Card title="Recipients">
         <table className="table">
           <thead>
             <tr>
-              <th>Destinatario</th>
+              <th>Recipient</th>
               <th>Wallet</th>
-              <th>Monto</th>
+              <th>Amount</th>
             </tr>
           </thead>
           <tbody>
@@ -143,7 +162,7 @@ export function PayrollDetailPage() {
                 <td style={{ fontWeight: 600 }}>
                   {item.recipientLabel ??
                     item.recipientUser?.email ??
-                    'Wallet externa'}
+                    'External wallet'}
                 </td>
                 <td className="mono muted">{shortAddress(item.recipientAddress)}</td>
                 <td>{formatUSDC(item.amount)}</td>
@@ -153,9 +172,9 @@ export function PayrollDetailPage() {
         </table>
       </Card>
 
-      <Card title={`Historial de ejecuciones (${payroll.executions.length})`}>
+      <Card title={`Execution history (${payroll.executions.length})`}>
         {payroll.executions.length === 0 ? (
-          <p className="muted">Aún no se ejecutó ningún ciclo.</p>
+          <p className="muted">No cycle has run yet.</p>
         ) : (
           payroll.executions.map((execution) => (
             <div key={execution.id} className="milestone">
@@ -163,7 +182,7 @@ export function PayrollDetailPage() {
                 <div>
                   <strong>{formatDateTime(execution.executedAt)}</strong>
                   <p className="muted" style={{ fontSize: 13 }}>
-                    {formatUSDC(execution.totalAmount)} distribuidos
+                    {formatUSDC(execution.totalAmount)} distributed
                   </p>
                 </div>
                 <Badge
@@ -186,9 +205,9 @@ export function PayrollDetailPage() {
                     <p key={tx.id} className="muted" style={{ fontSize: 12.5 }}>
                       {formatUSDC(tx.amount)} →{' '}
                       {tx.stellarHash &&
-                        (stellarExpertTxUrl(tx.stellarHash) ? (
+                        (stellarTxUrl(tx.stellarHash) ? (
                           <a
-                            href={stellarExpertTxUrl(tx.stellarHash)!}
+                            href={stellarTxUrl(tx.stellarHash)!}
                             target="_blank"
                             rel="noreferrer"
                             className="mono"
@@ -198,7 +217,7 @@ export function PayrollDetailPage() {
                           </a>
                         ) : (
                           <span className="mono">
-                            {shortAddress(tx.stellarHash)} (simulado)
+                            {shortAddress(tx.stellarHash)} (simulated)
                           </span>
                         ))}
                     </p>
@@ -210,51 +229,58 @@ export function PayrollDetailPage() {
         )}
       </Card>
 
+      {confirmExecute && (
+        <ConfirmModal
+          title="Run payroll now"
+          danger
+          confirmLabel={`Distribute ${formatUSDC(total)}`}
+          loading={action.isPending}
+          onClose={() => setConfirmExecute(false)}
+          onConfirm={() =>
+            action.mutate(
+              { path: 'execute' },
+              { onSuccess: () => setConfirmExecute(false) },
+            )
+          }
+        >
+          <p>
+            {formatUSDC(total)} will be distributed to {payroll.items.length}{' '}
+            recipients from the escrow.
+          </p>
+          <div className="modal__danger-note">
+            The distribution is on-chain and irreversible.
+          </div>
+        </ConfirmModal>
+      )}
+      {confirmArchive && (
+        <ConfirmModal
+          title="Archive payroll"
+          danger
+          confirmLabel="Archive payroll"
+          loading={action.isPending}
+          onClose={() => setConfirmArchive(false)}
+          onConfirm={() =>
+            action.mutate(
+              { path: 'archive' },
+              { onSuccess: () => setConfirmArchive(false) },
+            )
+          }
+        >
+          <p>
+            The payroll <strong>{payroll.name}</strong> will be archived and will
+            stop running. If it holds funds in escrow, they will be returned to the
+            company.
+          </p>
+        </ConfirmModal>
+      )}
       {showFund && (
         <FundModal
           total={total}
-          loading={action.isPending}
+          loading={fundMutation.isPending}
           onClose={() => setShowFund(false)}
-          onSubmit={(firstRun) =>
-            action.mutate({
-              path: 'fund',
-              body: firstRun ? { firstRun: new Date(firstRun).toISOString() } : {},
-            })
-          }
+          onSubmit={(firstRun) => fundMutation.mutate(firstRun)}
         />
       )}
     </>
-  );
-}
-
-function FundModal({
-  total,
-  loading,
-  onClose,
-  onSubmit,
-}: {
-  total: number;
-  loading: boolean;
-  onClose: () => void;
-  onSubmit: (firstRun: string) => void;
-}) {
-  const [firstRun, setFirstRun] = useState('');
-  return (
-    <Modal title="Fondear ciclo de nómina" onClose={onClose}>
-      <p className="muted" style={{ fontSize: 13.5, marginBottom: 12 }}>
-        Se despliega y fondea un escrow por {formatUSDC(total)} en Stellar. La
-        distribución se ejecuta automáticamente en la fecha programada.
-      </p>
-      <Field
-        label="Primera ejecución (opcional)"
-        type="datetime-local"
-        value={firstRun}
-        onChange={(e) => setFirstRun(e.target.value)}
-        hint="Si lo dejas vacío se programa según la frecuencia de la planilla"
-      />
-      <Button loading={loading} onClick={() => onSubmit(firstRun)}>
-        Fondear y programar
-      </Button>
-    </Modal>
   );
 }

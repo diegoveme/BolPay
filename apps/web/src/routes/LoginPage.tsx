@@ -4,15 +4,33 @@ import { usePollar } from '@pollar/react';
 import { AuthProvider as AuthProviderEnum, UserRole } from '@bolpay/shared';
 import type { AuthProvider as AuthProviderType, LoginRequest } from '@bolpay/shared';
 import { useAuth } from '@/auth/AuthContext';
-import { apiErrorMessage } from '@/lib/api';
+import { api, apiErrorMessage } from '@/lib/api';
+import {
+  clearWalletSource,
+  ensureWalletKit,
+  setWalletSource,
+  WALLET_NETWORK_PASSPHRASE,
+} from '@/lib/walletKit';
 import { shortAddress } from '@/lib/format';
 import { Button, Field, SelectField } from '@/components/ui';
+import { INVITE_TOKEN_KEY } from '@/routes/AcceptInvitePage';
+
+/** A self-custodial wallet connected through Stellar Wallets Kit. */
+interface WalletKitIdentity {
+  address: string;
+  /** Signed challenge transaction (XDR) proving ownership of `address`. */
+  authXdr: string;
+}
 
 /**
- * Two-step login:
- *  1. Pollar (publishable key, client-side): OAuth / email OTP + Stellar wallet.
- *  2. Exchange that identity for a BolPay session (POST /auth/login). On first
- *     login the backend requires a role, so we show a small registration form.
+ * Two-step login with two independent wallet paths:
+ *  1a. Pollar (publishable key, client-side): email OTP / OAuth + custodial
+ *      Stellar wallet - for people without any crypto wallet.
+ *  1b. Stellar Wallets Kit: connect an existing wallet (Freighter, Albedo,
+ *      xBull, Lobstr…) and sign a server challenge to prove ownership - for
+ *      people who already have crypto.
+ *  2.  Exchange that identity for a BolPay session (POST /auth/login). On first
+ *      login the backend requires a role, so we show a small registration form.
  */
 export function LoginPage() {
   const pollar = usePollar();
@@ -21,10 +39,15 @@ export function LoginPage() {
   const location = useLocation();
   const from = (location.state as { from?: string } | null)?.from ?? '/';
 
+  const [swk, setSwk] = useState<WalletKitIdentity | null>(null);
+  const [connecting, setConnecting] = useState(false);
+
   const [email, setEmail] = useState('');
   const [name, setName] = useState('');
   const [role, setRole] = useState<UserRole>(UserRole.Freelancer);
-  const [invitationToken, setInvitationToken] = useState('');
+  const [invitationToken, setInvitationToken] = useState(
+    () => localStorage.getItem(INVITE_TOKEN_KEY) ?? '',
+  );
   const [needsRegistration, setNeedsRegistration] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -46,6 +69,10 @@ export function LoginPage() {
     return AuthProviderEnum.Email;
   }, [profile]);
 
+  // Identity currently connected, from whichever path.
+  const connectedAddress = swk?.address ?? pollar.walletAddress ?? null;
+  const walletConnected = !!swk || pollar.isAuthenticated;
+
   useEffect(() => {
     if (profile?.mail && !email) setEmail(profile.mail);
     if (profile && !name) {
@@ -62,22 +89,33 @@ export function LoginPage() {
   }, [session, navigate, from]);
 
   async function exchange(extra?: Partial<LoginRequest>) {
-    if (!pollar.walletAddress) return;
+    if (!connectedAddress) return;
     setSubmitting(true);
     setError('');
     try {
-      await loginToBackend({
-        email: email.trim().toLowerCase(),
-        provider: detectedProvider,
-        stellarAddress: pollar.walletAddress,
+      const payload: LoginRequest = {
+        provider: swk ? AuthProviderEnum.Wallet : detectedProvider,
+        stellarAddress: connectedAddress,
+        email: email.trim().toLowerCase() || undefined,
         name: name.trim() || undefined,
+        walletAuthXdr: swk?.authXdr,
+        // Carry the invitation token from the first attempt so an invited
+        // (pre-created) account can be claimed without a second round-trip.
+        invitationToken: invitationToken.trim() || undefined,
         ...extra,
-      });
+      };
+      await loginToBackend(payload);
+      // Remember how this session signs escrow actions (Pollar vs own wallet).
+      setWalletSource(swk ? 'swk' : 'pollar');
+      localStorage.removeItem(INVITE_TOKEN_KEY);
       navigate(from, { replace: true });
     } catch (err) {
       const message = apiErrorMessage(err);
-      if (message.includes('role is required')) {
-        // First login: the backend wants to know who this user is.
+      if (
+        message.includes('role is required') ||
+        message.includes('email is required')
+      ) {
+        // First-time account: ask for role (and email if we don't have one).
         setNeedsRegistration(true);
       } else {
         setError(message);
@@ -87,12 +125,52 @@ export function LoginPage() {
     }
   }
 
-  // Once Pollar authenticates and we know the email, try the silent exchange.
+  // Connect an existing wallet via Stellar Wallets Kit and prove ownership by
+  // signing the server's challenge. Independent of Pollar.
+  async function connectWalletKit() {
+    setError('');
+    setConnecting(true);
+    try {
+      const kit = ensureWalletKit();
+      const { address } = await kit.authModal();
+      const { data } = await api.post<{ xdr: string }>('/auth/wallet-challenge', {
+        stellarAddress: address,
+      });
+      const { signedTxXdr } = await kit.signTransaction(data.xdr, {
+        address,
+        networkPassphrase: WALLET_NETWORK_PASSPHRASE,
+      });
+      setSwk({ address, authXdr: signedTxXdr });
+    } catch (err) {
+      setError(apiErrorMessage(err));
+    } finally {
+      setConnecting(false);
+    }
+  }
+
+  function resetWallet() {
+    setSwk(null);
+    setNeedsRegistration(false);
+    setEmail('');
+    clearWalletSource();
+    try {
+      pollar.logout();
+    } catch {
+      /* pollar session may already be gone */
+    }
+    try {
+      ensureWalletKit().disconnect();
+    } catch {
+      /* no wallet kit session */
+    }
+  }
+
+  // Once Pollar authenticates and we know the wallet, try the silent exchange.
   useEffect(() => {
     if (
       pollar.isAuthenticated &&
       pollar.walletAddress &&
-      email &&
+      !swk &&
       !needsRegistration &&
       !session &&
       !submitting
@@ -100,31 +178,61 @@ export function LoginPage() {
       void exchange();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pollar.isAuthenticated, pollar.walletAddress, email]);
+  }, [pollar.isAuthenticated, pollar.walletAddress]);
+
+  // Once a self-custodial wallet connects + signs, try the silent exchange.
+  useEffect(() => {
+    if (swk && !needsRegistration && !session && !submitting) {
+      void exchange();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [swk]);
 
   return (
     <div className="login-screen">
       <div className="login-card">
         <p className="login-card__logo">
+          <img src="/logo.png" alt="" />
           Bol<span>Pay</span>
         </p>
         <p className="login-card__tag">
-          Contratos freelance, escrow descentralizado en Stellar y nómina en USDC.
+          Freelance contracts, decentralized escrow on Stellar, and USDC payroll.
         </p>
 
-        {!pollar.isAuthenticated && (
+        {!walletConnected && (
           <>
-            <Button onClick={() => pollar.openLoginModal()} style={{ width: '100%' }}>
-              Iniciar sesión con Pollar
+            <Button
+              onClick={() => pollar.openLoginModal()}
+              style={{ width: '100%' }}
+            >
+              Continue with Pollar
             </Button>
             <p className="muted" style={{ fontSize: 13, marginTop: 14 }}>
-              Pollar crea y custodia tu wallet Stellar: entra con Google, GitHub o
-              un código por correo, sin seed phrases.
+              Pollar creates and custodies your Stellar wallet and lets you sign in
+              with an email code, no seed phrases or extensions. Ideal if you have
+              no crypto.
+            </p>
+
+            <div className="login-divider">
+              <span>or</span>
+            </div>
+
+            <Button
+              variant="ghost"
+              onClick={() => void connectWalletKit()}
+              loading={connecting}
+              style={{ width: '100%' }}
+            >
+              Connect my wallet
+            </Button>
+            <p className="muted" style={{ fontSize: 13, marginTop: 14 }}>
+              Already have a Stellar wallet (Freighter, Albedo, xBull, Lobstr…)?
+              Connect it and sign to enter; you keep custody of your funds.
             </p>
           </>
         )}
 
-        {pollar.isAuthenticated && (
+        {walletConnected && (
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -139,42 +247,43 @@ export function LoginPage() {
             }}
           >
             <p className="muted" style={{ fontSize: 13, marginBottom: 14 }}>
-              Wallet conectada:{' '}
-              <span className="mono">{shortAddress(pollar.walletAddress)}</span>
+              Wallet connected:{' '}
+              <span className="mono">{shortAddress(connectedAddress ?? '')}</span>
+              {swk && ' · signed with your wallet'}
             </p>
 
             <Field
-              label="Correo electrónico"
+              label="Email"
               type="email"
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="tu@correo.com"
+              placeholder="you@email.com"
             />
 
             {needsRegistration && (
               <>
                 <Field
-                  label="Nombre"
+                  label="Name"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder="Tu nombre o el de tu empresa"
+                  placeholder="Your name or your company's"
                 />
                 <SelectField
-                  label="Quiero usar BolPay como"
+                  label="I want to use BolPay as"
                   value={role}
                   onChange={(value) => setRole(value as UserRole)}
                   options={[
                     { value: UserRole.Freelancer, label: 'Freelancer' },
-                    { value: UserRole.Company, label: 'Empresa' },
-                    { value: UserRole.FixedEmployee, label: 'Empleado fijo' },
+                    { value: UserRole.Company, label: 'Company' },
+                    { value: UserRole.FixedEmployee, label: 'Fixed employee' },
                   ]}
                 />
                 <Field
-                  label="Código de invitación (opcional)"
+                  label="Invitation code (optional)"
                   value={invitationToken}
                   onChange={(e) => setInvitationToken(e.target.value)}
-                  hint="Si te invitaron por correo, pega aquí el código"
+                  hint="If you were invited by email, paste the code here"
                 />
               </>
             )}
@@ -183,21 +292,19 @@ export function LoginPage() {
 
             <div className="row" style={{ marginTop: 10 }}>
               <Button type="submit" loading={submitting}>
-                {needsRegistration ? 'Crear cuenta' : 'Entrar'}
+                {needsRegistration ? 'Create account' : 'Sign in'}
               </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={() => {
-                  pollar.logout();
-                  setNeedsRegistration(false);
-                  setEmail('');
-                }}
-              >
-                Cambiar de cuenta
+              <Button type="button" variant="ghost" onClick={resetWallet}>
+                Switch account
               </Button>
             </div>
           </form>
+        )}
+
+        {!walletConnected && error && (
+          <p className="field__error" style={{ marginTop: 14 }}>
+            {error}
+          </p>
         )}
       </div>
     </div>

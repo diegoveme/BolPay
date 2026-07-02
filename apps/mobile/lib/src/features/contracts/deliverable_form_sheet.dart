@@ -1,13 +1,16 @@
 import 'package:flutter/material.dart';
 
 import '../../core/app_scope.dart';
-import '../../data/contracts_repository.dart';
+import '../../core/wallet_signing.dart';
+import '../../data/milestones_repository.dart';
 import '../../domain/models/milestone.dart';
+import '../../ui/theme.dart';
 import '../../ui/widgets/feedback.dart';
 
-/// Abre el formulario de entregable como bottom sheet.
+/// Opens the deliverable form as a bottom sheet (web `DeliverableModal`
+/// parity: link, file URL and note; any non-empty field enables submit).
 ///
-/// Devuelve `true` si el entregable se envió correctamente.
+/// Returns `true` when the deliverable was submitted successfully.
 Future<bool?> showDeliverableFormSheet(
   BuildContext context, {
   required Milestone milestone,
@@ -18,53 +21,57 @@ Future<bool?> showDeliverableFormSheet(
     useSafeArea: true,
     builder: (_) => _DeliverableForm(
       milestone: milestone,
-      contracts: AppScope.read(context).contracts,
+      milestones: AppScope.read(context).milestones,
     ),
   );
 }
 
 class _DeliverableForm extends StatefulWidget {
-  const _DeliverableForm({required this.milestone, required this.contracts});
+  const _DeliverableForm({required this.milestone, required this.milestones});
 
   final Milestone milestone;
-  final ContractsRepository contracts;
+  final MilestonesRepository milestones;
 
   @override
   State<_DeliverableForm> createState() => _DeliverableFormState();
 }
 
 class _DeliverableFormState extends State<_DeliverableForm> {
-  final _formKey = GlobalKey<FormState>();
   final _linkController = TextEditingController();
+  final _fileController = TextEditingController();
   final _noteController = TextEditingController();
   bool _sending = false;
 
   @override
   void dispose() {
     _linkController.dispose();
+    _fileController.dispose();
     _noteController.dispose();
     super.dispose();
   }
 
-  String? _validateLink(String? value) {
-    final link = value?.trim() ?? '';
-    if (link.isEmpty) return 'Ingresa el link del entregable';
-    final uri = Uri.tryParse(link);
-    if (uri == null || !uri.hasScheme || !uri.hasAuthority) {
-      return 'Link inválido (incluye https://)';
-    }
-    return null;
-  }
+  bool get _enabled =>
+      _linkController.text.trim().isNotEmpty ||
+      _fileController.text.trim().isNotEmpty ||
+      _noteController.text.trim().isNotEmpty;
 
   Future<void> _submit() async {
-    if (!_formKey.currentState!.validate()) return;
+    if (_sending) return;
     setState(() => _sending = true);
     try {
-      await widget.contracts.submitDeliverable(
+      await widget.milestones.submitDeliverable(
         widget.milestone.id,
         linkUrl: _linkController.text.trim(),
+        fileUrl: _fileController.text.trim(),
         note: _noteController.text.trim(),
       );
+      // Mark the milestone delivered on-chain. Simulated mode has nothing
+      // to sign; a custodial session signs and broadcasts the change-status
+      // transaction right here; a manual session is pointed to the web app
+      // (the deliverable itself is already saved either way).
+      final xdr = await widget.milestones.prepareDeliver(widget.milestone.id);
+      if (!mounted) return;
+      await resolveSignature(context, xdr);
       if (mounted) Navigator.of(context).pop(true);
     } catch (e) {
       if (mounted) {
@@ -76,7 +83,7 @@ class _DeliverableFormState extends State<_DeliverableForm> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final colors = AppColors.of(context);
     return Padding(
       padding: EdgeInsets.only(
         left: 24,
@@ -84,59 +91,64 @@ class _DeliverableFormState extends State<_DeliverableForm> {
         top: 24,
         bottom: MediaQuery.of(context).viewInsets.bottom + 24,
       ),
-      child: Form(
-        key: _formKey,
+      child: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text(
-              'Subir entregable',
-              style: theme.textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.bold,
+              'Deliverable · ${widget.milestone.title ?? 'Milestone'}',
+              style: TextStyle(
+                fontSize: 17,
+                fontWeight: FontWeight.w600,
+                color: colors.text,
               ),
             ),
-            const SizedBox(height: 4),
-            Text(
-              widget.milestone.title ?? 'Milestone',
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
-            const SizedBox(height: 20),
-            TextFormField(
+            const SizedBox(height: 16),
+            TextField(
               controller: _linkController,
               keyboardType: TextInputType.url,
               autocorrect: false,
+              onChanged: (_) => setState(() {}),
               decoration: const InputDecoration(
-                labelText: 'Link del entregable',
+                labelText: 'Link (repository, demo, document)',
                 hintText: 'https://…',
-                prefixIcon: Icon(Icons.link),
-                border: OutlineInputBorder(),
               ),
-              validator: _validateLink,
             ),
-            const SizedBox(height: 16),
-            TextFormField(
+            const SizedBox(height: 14),
+            TextField(
+              controller: _fileController,
+              keyboardType: TextInputType.url,
+              autocorrect: false,
+              onChanged: (_) => setState(() {}),
+              decoration: const InputDecoration(
+                labelText: 'File URL (optional)',
+                hintText: 'https://storage…/deliverable.zip',
+              ),
+            ),
+            const SizedBox(height: 14),
+            TextField(
               controller: _noteController,
               maxLines: 3,
+              onChanged: (_) => setState(() {}),
               decoration: const InputDecoration(
-                labelText: 'Nota (opcional)',
-                prefixIcon: Icon(Icons.notes),
-                border: OutlineInputBorder(),
+                labelText: 'Note',
+                alignLabelWithHint: true,
               ),
             ),
-            const SizedBox(height: 20),
-            FilledButton.icon(
-              onPressed: _sending ? null : _submit,
-              icon: _sending
+            const SizedBox(height: 16),
+            FilledButton(
+              onPressed: _enabled && !_sending ? _submit : null,
+              child: _sending
                   ? const SizedBox(
-                      height: 18,
                       width: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
                     )
-                  : const Icon(Icons.upload_file),
-              label: const Text('Enviar entregable'),
+                  : const Text('Send deliverable'),
             ),
           ],
         ),

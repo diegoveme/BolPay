@@ -1,5 +1,5 @@
 /**
- * @bolpay/shared — domain enums and model contracts shared across the monorepo.
+ * @bolpay/shared - domain enums and model contracts shared across the monorepo.
  */
 export * from './enums.js';
 export * from './models.js';

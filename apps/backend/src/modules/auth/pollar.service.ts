@@ -4,8 +4,6 @@ import { ConfigService } from '@nestjs/config';
 export interface PollarWallet {
   id: string;
   address: string;
-  status: 'pending' | 'active';
-  balances?: { asset: string; amount: string }[];
 }
 
 /**
@@ -25,14 +23,16 @@ export class PollarService {
       config.get<string>('pollar.apiUrl') ?? 'https://api.pollar.xyz';
     this.secretKey = config.get<string>('pollar.secretKey') ?? '';
 
-    // Fail at boot, not at login time: production must never run with
-    // server-side wallet verification disabled.
-    if (config.get<string>('nodeEnv') === 'production' && !this.secretKey) {
-      throw new Error('POLLAR_SECRET_KEY is required in production');
+    // Fail at boot, not at login time: any non-development environment must
+    // never run with server-side wallet verification disabled.
+    if (config.get<string>('nodeEnv') !== 'development' && !this.secretKey) {
+      throw new Error(
+        'POLLAR_SECRET_KEY is required when NODE_ENV is not development',
+      );
     }
     if (!this.secretKey) {
       this.logger.warn(
-        'POLLAR_SECRET_KEY not set — wallet ownership verification is DISABLED (development only)',
+        'POLLAR_SECRET_KEY not set - wallet ownership verification is DISABLED (development only)',
       );
     }
   }
@@ -41,7 +41,7 @@ export class PollarService {
     return this.secretKey.length > 0;
   }
 
-  /** GET /wallets/:walletId — wallet details and balances. */
+  /** GET /wallets/:walletId - wallet details and balances. */
   async getWallet(walletId: string): Promise<PollarWallet | null> {
     if (!this.isConfigured) return null;
     const response = await fetch(`${this.baseUrl}/wallets/${walletId}`, {
@@ -59,7 +59,7 @@ export class PollarService {
    *
    * Fails CLOSED whenever the secret key is configured: a missing wallet id,
    * an unreachable Pollar server or an address mismatch all reject the login.
-   * Only when the secret key is absent (local development — production boots
+   * Only when the secret key is absent (local development - production boots
    * refuse to start without it) is verification skipped.
    *
    * Known limitation, documented on purpose: Pollar's public API does not yet
@@ -70,29 +70,10 @@ export class PollarService {
     pollarWalletId: string | undefined,
     stellarAddress: string,
   ): Promise<boolean> {
-    if (!this.isConfigured) return true; // dev only — see boot check
+    if (!this.isConfigured) return true; // dev only - see boot check
     if (!pollarWalletId) return false;
     const wallet = await this.getWallet(pollarWalletId);
     if (!wallet) return false;
     return wallet.address === stellarAddress;
-  }
-
-  /**
-   * POST /wallets/activate — fund the XLM reserve (Deferred funding mode).
-   * 409 (already active) is treated as success, as documented by Pollar.
-   */
-  async activateWallet(walletId: string): Promise<boolean> {
-    if (!this.isConfigured) return false;
-    const response = await fetch(`${this.baseUrl}/wallets/activate`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${this.secretKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ walletId }),
-    });
-    if (response.ok || response.status === 409) return true;
-    this.logger.warn(`Pollar activateWallet(${walletId}) → ${response.status}`);
-    return false;
   }
 }

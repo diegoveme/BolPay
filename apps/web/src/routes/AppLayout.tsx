@@ -1,50 +1,35 @@
+import { useEffect } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { usePollar } from '@pollar/react';
 import { useQuery } from '@tanstack/react-query';
 import type { Notification } from '@bolpay/shared';
 import { useAuth } from '@/auth/AuthContext';
-import { useNotificationsUi } from '@/notifications/NotificationsContext';
 import { api } from '@/lib/api';
 import { roleLabel, shortAddress } from '@/lib/format';
 import { Button } from '@/components/ui';
+import { ThemeToggle } from '@/components/ThemeToggle';
+import { TrustlineBanner } from '@/components/TrustlineBanner';
+import { NAV_BY_ROLE, VerifyEmailBanner } from './AppLayout.nav';
 
-const NAV_BY_ROLE = {
-  company: [
-    { to: '/', label: 'Inicio' },
-    { to: '/contracts', label: 'Contratos' },
-    { to: '/payrolls', label: 'Nómina' },
-    { to: '/disputes', label: 'Disputas' },
-    { to: '/notifications', label: 'Notificaciones' },
-    { to: '/profile', label: 'Perfil' },
-  ],
-  freelancer: [
-    { to: '/', label: 'Inicio' },
-    { to: '/contracts', label: 'Contratos' },
-    { to: '/disputes', label: 'Disputas' },
-    { to: '/notifications', label: 'Notificaciones' },
-    { to: '/profile', label: 'Perfil' },
-  ],
-  fixed_employee: [
-    { to: '/', label: 'Inicio' },
-    { to: '/notifications', label: 'Notificaciones' },
-    { to: '/profile', label: 'Perfil' },
-  ],
-  administrator: [
-    { to: '/', label: 'Inicio' },
-    { to: '/contracts', label: 'Contratos' },
-    { to: '/payrolls', label: 'Nómina' },
-    { to: '/disputes', label: 'Disputas' },
-    { to: '/admin', label: 'Administración' },
-    { to: '/notifications', label: 'Notificaciones' },
-    { to: '/profile', label: 'Perfil' },
-  ],
-} as const;
-
+/**
+ * Authenticated app shell: role-based sidebar navigation, top bar with wallet
+ * shortcut and unread notifications bell, and the routed page outlet.
+ */
 export function AppLayout() {
-  const { user, logout } = useAuth();
+  const { user, logout, refreshUser } = useAuth();
   const pollar = usePollar();
   const navigate = useNavigate();
-  const { unreadDelta } = useNotificationsUi();
+
+  // The stored session is a snapshot from login: emailVerified can change later
+  // (the user opens the verification link, usually in another tab). Re-sync from
+  // /auth/me on mount and whenever the tab regains focus so the verify banner
+  // clears on its own once the email is confirmed.
+  useEffect(() => {
+    void refreshUser();
+    const onFocus = () => void refreshUser();
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, [refreshUser]);
 
   const { data: unread } = useQuery({
     queryKey: ['notifications', 'unread'],
@@ -56,12 +41,13 @@ export function AppLayout() {
 
   if (!user) return null;
   const nav = NAV_BY_ROLE[user.role];
-  const unreadCount = (unread?.length ?? 0) + unreadDelta;
+  const unreadCount = unread?.length ?? 0;
 
   return (
     <div className="shell">
       <aside className="sidebar">
         <p className="sidebar__brand">
+          <img src="/logo.png" alt="" />
           Bol<span>Pay</span>
         </p>
         {nav.map((item) => (
@@ -89,7 +75,7 @@ export function AppLayout() {
               navigate('/login');
             }}
           >
-            Cerrar sesión
+            Log out
           </Button>
         </div>
       </aside>
@@ -100,16 +86,17 @@ export function AppLayout() {
             <button
               type="button"
               className="topbar__wallet"
-              title="Ver saldo de la wallet (Pollar)"
+              title="View wallet balance"
               onClick={() => pollar.openWalletBalanceModal()}
             >
               ◈ {shortAddress(pollar.walletAddress)}
             </button>
           )}
+          <ThemeToggle />
           <button
             type="button"
             className="topbar__bell"
-            aria-label="Notificaciones"
+            aria-label="Notifications"
             onClick={() => navigate('/notifications')}
           >
             🔔
@@ -119,6 +106,10 @@ export function AppLayout() {
           </button>
         </header>
         <main className="content">
+          {!user.emailVerified && <VerifyEmailBanner />}
+          {user.stellarAddress && (
+            <TrustlineBanner address={user.stellarAddress} />
+          )}
           <Outlet />
         </main>
       </div>

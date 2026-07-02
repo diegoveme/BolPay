@@ -1,10 +1,12 @@
 import {
+  BadRequestException,
   ForbiddenException,
   Inject,
   Injectable,
-  Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { randomBytes } from 'node:crypto';
 import {
   Prisma,
   type Escrow,
@@ -13,6 +15,7 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { AuthUser } from '../../common/types/auth';
+import { sumAmounts } from '../../common/decimal.util';
 import {
   ESCROW_CHAIN_ADAPTER,
   type EscrowChainAdapter,
@@ -32,32 +35,44 @@ export interface DisputeDistribution {
  */
 @Injectable()
 export class EscrowService {
-  private readonly logger = new Logger(EscrowService.name);
-
   constructor(
     private readonly prisma: PrismaService,
     @Inject(ESCROW_CHAIN_ADAPTER) private readonly chain: EscrowChainAdapter,
+    private readonly config: ConfigService,
   ) {}
 
-  // -- Contract escrows ---------------------------------------------------------
+  /** Real on-chain mode: a confirmation MUST carry a real tx hash (no SIM). */
+  private get requiresOnChainHash(): boolean {
+    return this.config.get<string>('escrowMode') === 'trustless_work';
+  }
+
+  /** Fail-closed in real mode; only simulated mode mints a placeholder hash. */
+  private settleHash(txHash?: string): string {
+    if (txHash) return txHash;
+    if (this.requiresOnChainHash) {
+      throw new BadRequestException(
+        'Missing the signed on-chain transaction hash (cannot confirm without signing)',
+      );
+    }
+    return `SIM${randomBytes(30).toString('hex')}`;
+  }
+
+  // -- Non-custodial flow: the company signs funding with its own wallet -------
 
   /**
-   * Deploy + fund the escrow for an accepted contract (docs §2: "Fondeo
-   * automático del escrow al aceptar el contrato"). One on-chain milestone per
-   * contract milestone; receivers are the freelancer's Stellar wallet.
+   * Deploy the escrow contract for an accepted contract - NO funds moved yet.
+   * Deploying only creates the Soroban contract (no money), so BolPay can do it
+   * server-side and obtain the contractId. Funding is signed by the company.
    */
-  async createAndFundContractEscrow(
+  async deployContractEscrow(
     contractId: string,
     title: string,
     description: string | null,
     milestones: Pick<Milestone, 'id' | 'position' | 'title' | 'amount'>[],
     freelancerAddress: string,
+    companyAddress: string,
   ): Promise<Escrow> {
-    const total = milestones.reduce(
-      (sum, m) => sum.add(m.amount),
-      new Prisma.Decimal(0),
-    );
-
+    const total = sumAmounts(milestones);
     const deploy = await this.chain.deployMultiRelease({
       engagementId: `contract-${contractId}`,
       title,
@@ -69,116 +84,185 @@ export class EscrowService {
           amount: m.amount.toNumber(),
           receiver: freelancerAddress,
         })),
+      // Non-custodial roles: the company approves+releases, the freelancer
+      // delivers. disputeResolver is omitted so the platform executes the
+      // agreed dispute split (it can only pay the two parties, never skim).
+      roles: {
+        approver: companyAddress,
+        serviceProvider: freelancerAddress,
+        releaseSigner: companyAddress,
+      },
     });
-    const fund = await this.chain.fundEscrow(
-      deploy.contractId,
-      total.toString(),
-    );
-
-    const escrow = await this.prisma.escrow.create({
+    return this.prisma.escrow.create({
       data: {
         type: 'contract',
-        status: 'funded',
+        status: 'created',
         trustlessWorkId: deploy.contractId,
+        // Expected total; status stays 'created' until the company funds it.
         fundedAmount: total,
+        // Seed to 0 so later atomic increments never operate on a NULL column.
+        releasedAmount: new Prisma.Decimal(0),
       },
     });
-    await this.prisma.transaction.create({
-      data: {
-        operation: 'fund',
-        amount: total,
-        stellarHash: fund.txHash,
-        confirmedAt: new Date(),
-      },
-    });
-    return escrow;
-  }
-
-  /** Record delivered work on-chain as milestone evidence (best effort). */
-  async submitMilestoneEvidence(
-    escrow: Escrow,
-    milestone: Milestone,
-    evidence: string,
-  ): Promise<void> {
-    if (!escrow.trustlessWorkId) return;
-    try {
-      await this.chain.markMilestoneDone(
-        escrow.trustlessWorkId,
-        milestone.position,
-        evidence,
-      );
-    } catch (error) {
-      // Evidence marking must not block the deliverable submission itself.
-      this.logger.warn(
-        `Failed to mark milestone ${milestone.id} done on-chain: ${String(error)}`,
-      );
-    }
   }
 
   /**
-   * Approve + release a milestone's funds to the freelancer (docs §3:
-   * "Liberación automática de fondos al aprobar cada milestone").
+   * Build the UNSIGNED fund XDR for the company to sign with its own wallet.
+   * `{ unsignedXdr: null }` in simulated mode (no signature needed).
    */
-  async releaseMilestoneFunds(
+  async prepareContractFund(
     escrow: Escrow,
-    milestone: Milestone,
-  ): Promise<string> {
+    companyAddress: string,
+    amount: Prisma.Decimal,
+  ): Promise<{ unsignedXdr: string | null }> {
     if (!escrow.trustlessWorkId) {
       throw new NotFoundException('Escrow has no on-chain contract id');
     }
-    await this.chain.approveMilestone(
+    const unsignedXdr = await this.chain.buildFundXdr(
       escrow.trustlessWorkId,
-      milestone.position,
+      amount.toString(),
+      companyAddress,
     );
-    const release = await this.chain.releaseMilestone(
-      escrow.trustlessWorkId,
-      milestone.position,
-    );
+    return { unsignedXdr };
+  }
 
-    const released = (escrow.releasedAmount ?? new Prisma.Decimal(0)).add(
-      milestone.amount,
+  /** Record the fund once the company signed+submitted it (or simulated). */
+  async confirmContractFund(
+    escrow: Escrow,
+    amount: Prisma.Decimal,
+    txHash?: string,
+  ): Promise<string> {
+    const hash = this.settleHash(txHash);
+    // Atomic claim: only the first confirm flips 'created' -> 'funded'. A
+    // duplicate confirm sees status !== 'created', claims 0 rows and aborts, so
+    // the fund is recorded exactly once.
+    const claimed = await this.prisma.escrow.updateMany({
+      where: { id: escrow.id, status: 'created' },
+      data: { status: 'funded' },
+    });
+    if (claimed.count !== 1) {
+      throw new BadRequestException('Escrow is already funded');
+    }
+    await this.prisma.transaction.create({
+      data: {
+        operation: 'fund',
+        amount,
+        stellarHash: hash,
+        confirmedAt: new Date(),
+      },
+    });
+    return hash;
+  }
+
+  /** Build the unsigned APPROVE XDR for the company (approver) to sign. */
+  async prepareMilestoneApprove(
+    escrow: Escrow,
+    milestone: Milestone,
+    companyAddress: string,
+  ): Promise<{ approveXdr: string | null }> {
+    if (!escrow.trustlessWorkId) {
+      throw new NotFoundException('Escrow has no on-chain contract id');
+    }
+    const approveXdr = await this.chain.buildApproveXdr(
+      escrow.trustlessWorkId,
+      milestone.position,
+      companyAddress,
     );
+    return { approveXdr };
+  }
+
+  /** Build the unsigned RELEASE XDR (call after the approve is on-chain). */
+  async prepareMilestoneReleaseXdr(
+    escrow: Escrow,
+    milestone: Milestone,
+    companyAddress: string,
+  ): Promise<{ releaseXdr: string | null }> {
+    if (!escrow.trustlessWorkId) {
+      throw new NotFoundException('Escrow has no on-chain contract id');
+    }
+    const releaseXdr = await this.chain.buildReleaseXdr(
+      escrow.trustlessWorkId,
+      milestone.position,
+      companyAddress,
+    );
+    return { releaseXdr };
+  }
+
+  /** Record the milestone release after the company signed approve + release. */
+  async confirmMilestoneRelease(
+    escrow: Escrow,
+    milestone: Milestone,
+    txHash?: string,
+  ): Promise<string> {
+    const hash = this.settleHash(txHash);
+    // Atomic increment so two concurrent releases cannot clobber each other's
+    // cumulative total (read-modify-write would lose one update). Decide the
+    // final status from the returned fresh row, not the stale in-memory value.
+    const updatedEscrow = await this.prisma.escrow.update({
+      where: { id: escrow.id },
+      data: { releasedAmount: { increment: milestone.amount } },
+    });
+    const released = updatedEscrow.releasedAmount ?? new Prisma.Decimal(0);
     const fullyReleased =
       escrow.fundedAmount !== null && released.gte(escrow.fundedAmount);
-
     await this.prisma.$transaction([
       this.prisma.transaction.create({
         data: {
           operation: 'release',
           amount: milestone.amount,
-          stellarHash: release.txHash,
+          stellarHash: hash,
           confirmedAt: new Date(),
           milestoneId: milestone.id,
         },
       }),
       this.prisma.escrow.update({
         where: { id: escrow.id },
-        data: {
-          releasedAmount: released,
-          status: fullyReleased ? 'released' : 'funded',
-        },
+        data: { status: fullyReleased ? 'released' : 'funded' },
       }),
     ]);
-    return release.txHash;
+    return hash;
   }
 
-  /** Flag a milestone as disputed on-chain; funds stay locked. */
-  async disputeMilestone(
+  /**
+   * Build the unsigned change-status XDR for the FREELANCER to sign when
+   * marking a milestone delivered. `{ deliverXdr: null }` in simulated mode.
+   */
+  async prepareMilestoneDeliver(
     escrow: Escrow,
     milestone: Milestone,
-  ): Promise<string> {
+    freelancerAddress: string,
+    evidence: string,
+  ): Promise<{ deliverXdr: string | null }> {
     if (!escrow.trustlessWorkId) {
       throw new NotFoundException('Escrow has no on-chain contract id');
     }
-    const result = await this.chain.disputeMilestone(
+    const deliverXdr = await this.chain.buildChangeStatusXdr(
       escrow.trustlessWorkId,
       milestone.position,
+      evidence,
+      freelancerAddress,
     );
-    await this.prisma.escrow.update({
-      where: { id: escrow.id },
-      data: { status: 'disputed' },
-    });
-    return result.txHash;
+    return { deliverXdr };
+  }
+
+  /**
+   * Build the unsigned dispute XDR for a PARTY to sign (TW only lets a party
+   * open a dispute). `{ disputeXdr: null }` in simulated mode.
+   */
+  async prepareDisputeOpen(
+    escrow: Escrow,
+    milestone: Milestone,
+    signerAddress: string,
+  ): Promise<{ disputeXdr: string | null }> {
+    if (!escrow.trustlessWorkId) {
+      throw new NotFoundException('Escrow has no on-chain contract id');
+    }
+    const disputeXdr = await this.chain.buildDisputeXdr(
+      escrow.trustlessWorkId,
+      milestone.position,
+      signerAddress,
+    );
+    return { disputeXdr };
   }
 
   /** Execute an agreed dispute resolution over the escrow (split supported). */
@@ -210,9 +294,13 @@ export class EscrowService {
       distributions,
     );
 
-    const released = (escrow.releasedAmount ?? new Prisma.Decimal(0)).add(
-      milestone.amount,
-    );
+    // Atomic increment (same rationale as confirmMilestoneRelease): never lose a
+    // concurrent update to the cumulative released total.
+    const updatedEscrow = await this.prisma.escrow.update({
+      where: { id: escrow.id },
+      data: { releasedAmount: { increment: milestone.amount } },
+    });
+    const released = updatedEscrow.releasedAmount ?? new Prisma.Decimal(0);
     const fullyReleased =
       escrow.fundedAmount !== null && released.gte(escrow.fundedAmount);
 
@@ -252,10 +340,7 @@ export class EscrowService {
       ...audit,
       this.prisma.escrow.update({
         where: { id: escrow.id },
-        data: {
-          releasedAmount: released,
-          status: fullyReleased ? 'released' : 'funded',
-        },
+        data: { status: fullyReleased ? 'released' : 'funded' },
       }),
     ]);
     return result.txHash;
@@ -263,20 +348,12 @@ export class EscrowService {
 
   // -- Payroll escrows ----------------------------------------------------------
 
-  /** Deploy + fund the escrow that backs one payroll cycle. */
-  async createAndFundPayrollEscrow(
+  /** Deploy the payroll escrow contract only - the company funds it by signing. */
+  async deployPayrollEscrow(
     payrollId: string,
     payrollName: string,
-    items: Pick<
-      PayrollItem,
-      'id' | 'recipientAddress' | 'recipientLabel' | 'amount'
-    >[],
+    items: Pick<PayrollItem, 'id' | 'recipientAddress' | 'recipientLabel' | 'amount'>[],
   ): Promise<Escrow> {
-    const total = items.reduce(
-      (sum, i) => sum.add(i.amount),
-      new Prisma.Decimal(0),
-    );
-
     const deploy = await this.chain.deployMultiRelease({
       engagementId: `payroll-${payrollId}-${Date.now()}`,
       title: `Payroll: ${payrollName}`,
@@ -286,29 +363,23 @@ export class EscrowService {
         amount: item.amount.toNumber(),
         receiver: item.recipientAddress,
       })),
+      // Payroll has no counterparty and the recipients are LOCKED here at
+      // deploy. Omitting roles lets the platform hold them, so it can execute
+      // the scheduled release on payday (it can only pay these exact recipients
+      // these exact amounts - it cannot redirect or skim). The company's only
+      // money decision is funding the cycle, which it signs itself.
     });
-    const fund = await this.chain.fundEscrow(
-      deploy.contractId,
-      total.toString(),
-    );
-
-    const escrow = await this.prisma.escrow.create({
+    const total = sumAmounts(items);
+    return this.prisma.escrow.create({
       data: {
         type: 'payroll',
-        status: 'funded',
+        status: 'created',
         trustlessWorkId: deploy.contractId,
         fundedAmount: total,
+        // Seed to 0 so later atomic increments never operate on a NULL column.
+        releasedAmount: new Prisma.Decimal(0),
       },
     });
-    await this.prisma.transaction.create({
-      data: {
-        operation: 'fund',
-        amount: total,
-        stellarHash: fund.txHash,
-        confirmedAt: new Date(),
-      },
-    });
-    return escrow;
   }
 
   /** Release one payroll item (position = index within the funded cycle). */
@@ -321,6 +392,14 @@ export class EscrowService {
     if (!escrow.trustlessWorkId) {
       throw new NotFoundException('Payroll escrow has no on-chain contract id');
     }
+    // Platform holds every role for payroll, so it walks the full release flow:
+    // mark the recipient's slice done, approve it, and release the funds to the
+    // (locked) recipient address.
+    await this.chain.markMilestoneDone(
+      escrow.trustlessWorkId,
+      position,
+      item.recipientLabel ?? 'payroll',
+    );
     await this.chain.approveMilestone(escrow.trustlessWorkId, position);
     const release = await this.chain.releaseMilestone(
       escrow.trustlessWorkId,
@@ -340,8 +419,17 @@ export class EscrowService {
     return release.txHash;
   }
 
+  /**
+   * Relay a transaction a self-custodial wallet (SWK) already signed to the
+   * chain provider and return its hash. Pollar wallets submit themselves.
+   */
+  async submitSignedTx(signedXdr: string): Promise<{ txHash: string }> {
+    return { txHash: await this.chain.submitSigned(signedXdr) };
+  }
+
   // -- Queries -------------------------------------------------------------------
 
+  /** List every escrow with its contract/payroll summary (administrators). */
   listAll() {
     return this.prisma.escrow.findMany({
       include: {
@@ -353,6 +441,7 @@ export class EscrowService {
     });
   }
 
+  /** Fetch one escrow, enforcing that the caller is a party to it. */
   async findById(id: string, user: AuthUser) {
     const escrow = await this.prisma.escrow.findUnique({
       where: { id },

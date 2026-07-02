@@ -6,6 +6,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { EscrowService } from '../escrow/escrow.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { ActivityLogsService } from '../activity-logs/activity-logs.service';
+import { ContractsService } from '../contracts/contracts.service';
 import type { AuthUser } from '../../common/types/auth';
 
 const company: AuthUser = {
@@ -33,11 +34,11 @@ function disputeFixture(overrides: Record<string, unknown> = {}) {
     openedById: 'company-user',
     milestone: {
       id: 'm1',
-      title: 'Diseño',
+      title: 'Design',
       amount: new Prisma.Decimal('500'),
       contract: {
         id: 'c1',
-        title: 'Proyecto',
+        title: 'Project',
         status: 'active',
         company: {
           userId: 'company-user',
@@ -58,7 +59,12 @@ function disputeFixture(overrides: Record<string, unknown> = {}) {
 describe('DisputesService', () => {
   let service: DisputesService;
   const prisma = {
-    dispute: { findUnique: jest.fn(), update: jest.fn(), findMany: jest.fn() },
+    dispute: {
+      findUnique: jest.fn(),
+      update: jest.fn(),
+      updateMany: jest.fn(),
+      findMany: jest.fn(),
+    },
     milestone: {
       findUnique: jest.fn(),
       findMany: jest.fn(),
@@ -70,7 +76,6 @@ describe('DisputesService', () => {
     $transaction: jest.fn(),
   };
   const escrow = {
-    disputeMilestone: jest.fn().mockResolvedValue('TX1'),
     resolveMilestoneDispute: jest.fn().mockResolvedValue('TX2'),
   };
   const notifications = { notify: jest.fn() };
@@ -79,6 +84,8 @@ describe('DisputesService', () => {
   beforeEach(async () => {
     jest.clearAllMocks();
     escrow.resolveMilestoneDispute.mockResolvedValue('TX2');
+    // Atomic resolve claim succeeds by default.
+    prisma.dispute.updateMany.mockResolvedValue({ count: 1 });
     prisma.user.findMany.mockResolvedValue([]);
     prisma.$transaction.mockResolvedValue([
       disputeFixture({ status: 'resolved' }),
@@ -92,6 +99,10 @@ describe('DisputesService', () => {
         { provide: EscrowService, useValue: escrow },
         { provide: NotificationsService, useValue: notifications },
         { provide: ActivityLogsService, useValue: activityLogs },
+        {
+          provide: ContractsService,
+          useValue: { completeIfAllReleased: jest.fn() },
+        },
       ],
     }).compile();
     service = moduleRef.get(DisputesService);

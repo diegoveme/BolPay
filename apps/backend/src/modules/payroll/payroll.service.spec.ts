@@ -9,7 +9,7 @@ import { ActivityLogsService } from '../activity-logs/activity-logs.service';
 function payrollFixture(overrides: Record<string, unknown> = {}) {
   return {
     id: 'p1',
-    name: 'Nómina core',
+    name: 'Core payroll',
     frequency: 'biweekly',
     status: 'funded',
     nextRun: new Date('2026-06-01T12:00:00Z'),
@@ -21,14 +21,14 @@ function payrollFixture(overrides: Record<string, unknown> = {}) {
         id: 'i1',
         recipientUserId: 'emp-1',
         recipientAddress: 'G' + 'A'.repeat(55),
-        recipientLabel: 'Empleado 1',
+        recipientLabel: 'Employee 1',
         amount: new Prisma.Decimal('1000'),
       },
       {
         id: 'i2',
         recipientUserId: null,
         recipientAddress: 'G' + 'C'.repeat(55),
-        recipientLabel: 'Externo',
+        recipientLabel: 'External',
         amount: new Prisma.Decimal('500'),
       },
     ],
@@ -40,7 +40,12 @@ function payrollFixture(overrides: Record<string, unknown> = {}) {
 describe('PayrollService', () => {
   let service: PayrollService;
   const prisma = {
-    payroll: { findMany: jest.fn(), findUnique: jest.fn(), update: jest.fn() },
+    payroll: {
+      findMany: jest.fn(),
+      findUnique: jest.fn(),
+      update: jest.fn(),
+      updateMany: jest.fn(),
+    },
     payrollExecution: { create: jest.fn(), update: jest.fn() },
     companyProfile: { findUnique: jest.fn() },
     user: { findUnique: jest.fn() },
@@ -53,6 +58,8 @@ describe('PayrollService', () => {
   beforeEach(async () => {
     jest.clearAllMocks();
     escrow.releasePayrollItem.mockResolvedValue('TX');
+    // Atomic run claim (funded -> active) succeeds by default.
+    prisma.payroll.updateMany.mockResolvedValue({ count: 1 });
     prisma.payrollExecution.create.mockResolvedValue({
       id: 'ex1',
       status: 'pending',

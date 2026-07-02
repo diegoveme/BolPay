@@ -132,15 +132,19 @@ model User {
   role           UserRole
   authProvider   AuthProvider @map("auth_provider")
   // Stellar G-address of the Pollar-managed wallet. Required to operate
-  // (docs §1: "Conexión de wallet Stellar obligatoria para operar").
+  // (a Stellar wallet connection is mandatory to use the platform).
   stellarAddress String?      @unique @map("stellar_address")
   // Pollar wallet id (wal_...) for server-side operations (activation, lookups).
   pollarWalletId String?      @unique @map("pollar_wallet_id")
+  // Email ownership verified by BolPay via SMTP/Nodemailer (Pollar does not
+  // expose a backend-verifiable email claim). Gates sensitive actions.
+  emailVerified  Boolean      @default(false) @map("email_verified")
   createdAt      DateTime     @default(now()) @map("created_at")
 
-  companyProfile    CompanyProfile?
-  freelancerProfile FreelancerProfile?
-  wallets           Wallet[]
+  companyProfile         CompanyProfile?
+  freelancerProfile      FreelancerProfile?
+  emailVerificationTokens EmailVerificationToken[]
+  wallets                Wallet[]
   notifications     Notification[]
   activityLogs      ActivityLog[]
   disputesOpened    Dispute[]          @relation("DisputeOpenedBy")
@@ -171,6 +175,11 @@ model CompanyProfile {
   userId      String  @unique @map("user_id") @db.Uuid
   name        String
   description String?
+  location    String?
+  website     String?
+  industry    String?
+  values      String?
+  avatarUrl   String? @map("avatar_url")
 
   user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
   contracts Contract[]
@@ -180,10 +189,17 @@ model CompanyProfile {
 }
 
 model FreelancerProfile {
-  id          String  @id @default(uuid()) @db.Uuid
-  userId      String  @unique @map("user_id") @db.Uuid
-  displayName String  @map("display_name")
+  id          String   @id @default(uuid()) @db.Uuid
+  userId      String   @unique @map("user_id") @db.Uuid
+  displayName String   @map("display_name")
   headline    String?
+  bio         String?
+  skills      String[] @default([])
+  location    String?
+  website     String?
+  linkedin    String?
+  github      String?
+  avatarUrl   String?  @map("avatar_url")
 
   user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
   contracts Contract[]
@@ -191,7 +207,37 @@ model FreelancerProfile {
   @@map("freelancer_profiles")
 }
 
-// Email invitations (docs §1: "Invitaciones por correo electrónico").
+// Single-use, expiring token emailed (via SMTP/Nodemailer) to confirm email ownership.
+model EmailVerificationToken {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  token     String   @unique
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("email_verification_tokens")
+}
+
+// Short-lived numeric code emailed to prove ownership of an email address on
+// the manual (self-declared wallet) sign-in path, before /auth/login. Not tied
+// to a user: it gates the login by email, so it may exist before the account
+// does. One active code per email (the row is replaced on each request and
+// deleted once consumed).
+model EmailLoginCode {
+  id        String   @id @default(uuid()) @db.Uuid
+  email     String   @unique
+  codeHash  String   @map("code_hash")
+  attempts  Int      @default(0)
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("email_login_codes")
+}
+
+// Email invitations.
 model Invitation {
   id          String           @id @default(uuid()) @db.Uuid
   email       String
@@ -281,7 +327,7 @@ model Deliverable {
 }
 
 // ---------------------------------------------------------------------------
-// Escrow (Trustless Work reference) — funds a contract or a payroll
+// Escrow (Trustless Work reference) - funds a contract or a payroll
 // ---------------------------------------------------------------------------
 
 model Escrow {

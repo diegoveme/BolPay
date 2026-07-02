@@ -15,9 +15,9 @@ import {
   MinLength,
   ValidateNested,
 } from 'class-validator';
+import { AMOUNT_PATTERN } from '../../../common/constants';
 
-const AMOUNT_PATTERN = /^(?!0+(\.0+)?$)\d{1,13}(\.\d{1,7})?$/;
-
+/** A single payroll recipient: a platform user or an external Stellar wallet. */
 export class PayrollItemInputDto {
   @ApiPropertyOptional({ description: 'Platform user id (fixed employee)' })
   @IsOptional()
@@ -34,7 +34,7 @@ export class PayrollItemInputDto {
   })
   recipientAddress?: string;
 
-  @ApiPropertyOptional({ example: 'Juan — DevOps' })
+  @ApiPropertyOptional({ example: 'John - DevOps' })
   @IsOptional()
   @IsString()
   @MaxLength(120)
@@ -47,8 +47,9 @@ export class PayrollItemInputDto {
   amount!: string;
 }
 
+/** Payload to create a payroll with its recipients. */
 export class CreatePayrollDto {
-  @ApiProperty({ example: 'Nómina equipo core' })
+  @ApiProperty({ example: 'Core team payroll' })
   @IsString()
   @MinLength(3)
   @MaxLength(120)
@@ -67,6 +68,7 @@ export class CreatePayrollDto {
   items!: PayrollItemInputDto[];
 }
 
+/** Partial update for an editable payroll; items replace the full recipient set. */
 export class UpdatePayrollDto {
   @ApiPropertyOptional()
   @IsOptional()
@@ -93,12 +95,15 @@ export class UpdatePayrollDto {
   items?: PayrollItemInputDto[];
 }
 
-export class FundPayrollDto {
-  @ApiPropertyOptional({
-    description:
-      'First scheduled run (defaults to the next frequency interval)',
-    example: '2026-07-01T12:00:00.000Z',
-  })
+/** Result of the company's client-side signature for the payroll fund. */
+export class ConfirmFundDto {
+  @ApiPropertyOptional({ description: 'Stellar tx hash from the wallet signature' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(128)
+  txHash?: string;
+
+  @ApiPropertyOptional({ description: 'First scheduled run (ISO datetime)' })
   @IsOptional()
   @IsDateString()
   firstRun?: string;

@@ -4,7 +4,7 @@ import { IsOptional, IsString, IsUrl, MaxLength } from 'class-validator';
 /** Freelancer submission: a file, a link and/or a note (at least one). */
 export class SubmitDeliverableDto {
   @ApiPropertyOptional({
-    example: 'https://storage.example.com/entrega-v1.zip',
+    example: 'https://storage.example.com/deliverable-v1.zip',
   })
   @IsOptional()
   @IsUrl({ require_tld: false })
@@ -17,16 +17,17 @@ export class SubmitDeliverableDto {
   @MaxLength(2000)
   linkUrl?: string;
 
-  @ApiPropertyOptional({ example: 'Primera versión del módulo de pagos' })
+  @ApiPropertyOptional({ example: 'First version of the payments module' })
   @IsOptional()
   @IsString()
   @MaxLength(2000)
   note?: string;
 }
 
+/** Company review note when requesting changes on a deliverable. */
 export class ReviewDeliverableDto {
   @ApiPropertyOptional({
-    example: 'Falta el manejo de errores en el formulario',
+    example: 'The form is missing error handling',
   })
   @IsOptional()
   @IsString()

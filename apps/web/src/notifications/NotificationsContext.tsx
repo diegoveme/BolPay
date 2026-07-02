@@ -19,9 +19,6 @@ interface Toast {
 }
 
 interface NotificationsContextValue {
-  /** Unread counter shown on the topbar bell (kept in sync by SSE). */
-  unreadDelta: number;
-  resetUnreadDelta: () => void;
   pushToast: (message: string) => void;
 }
 
@@ -36,7 +33,6 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
   const { session } = useAuth();
   const queryClient = useQueryClient();
   const [toasts, setToasts] = useState<Toast[]>([]);
-  const [unreadDelta, setUnreadDelta] = useState(0);
 
   const pushToast = useCallback((message: string) => {
     const id = crypto.randomUUID();
@@ -60,22 +56,21 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
       try {
         const notification = JSON.parse(event.data as string) as Notification;
         pushToast(notification.message);
-        setUnreadDelta((n) => n + 1);
+        // Do NOT bump a local counter here: invalidating the query refetches the
+        // unread list, which already includes this notification. Counting both
+        // would double it (1 real → showed 2).
         void queryClient.invalidateQueries({ queryKey: ['notifications'] });
         void queryClient.invalidateQueries({ queryKey: ['contracts'] });
         void queryClient.invalidateQueries({ queryKey: ['disputes'] });
         void queryClient.invalidateQueries({ queryKey: ['payrolls'] });
       } catch {
-        /* malformed event — ignore */
+        /* malformed event · ignore */
       }
     };
     return () => source.close();
   }, [session, pushToast, queryClient]);
 
-  const value = useMemo(
-    () => ({ unreadDelta, resetUnreadDelta: () => setUnreadDelta(0), pushToast }),
-    [unreadDelta, pushToast],
-  );
+  const value = useMemo(() => ({ pushToast }), [pushToast]);
 
   return (
     <NotificationsContext.Provider value={value}>

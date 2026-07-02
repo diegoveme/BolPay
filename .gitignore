@@ -13,7 +13,6 @@ build/
 coverage/
 *.tsbuildinfo
 .turbo/
-.nest/
 
 # Vite
 apps/web/dist/
@@ -58,12 +57,18 @@ Thumbs.db
 npm-debug.log*
 
 # ---------------------------------------------------------------------------
-# AI / Claude tooling — local only, never committed (see TODO.md)
+# AI / Claude tooling — local only, never committed
 # ---------------------------------------------------------------------------
 .claude/
 TODO.md
-done_todo.md
 skills-lock.json
+
+# Internal planning / context notes (academic report drafts) — local only.
+internal/
+*.local.md
+
+# Playwright MCP debug output (console logs + page snapshots).
+.playwright-mcp/
 
 # MCP config holds live API keys (e.g. Stitch X-Goog-Api-Key) in plaintext.
 .mcp.json

@@ -38,5 +38,5 @@ export function apiErrorMessage(error: unknown): string {
     if (typeof data?.message === 'string') return data.message;
     return error.message;
   }
-  return error instanceof Error ? error.message : 'Error inesperado';
+  return error instanceof Error ? error.message : 'Unexpected error';
 }

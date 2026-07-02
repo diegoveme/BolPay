@@ -4,6 +4,8 @@ import { Test } from '@nestjs/testing';
 import { JwtService } from '@nestjs/jwt';
 import { AuthService } from './auth.service';
 import { PollarService } from './pollar.service';
+import { WalletAuthService } from './wallet-auth.service';
+import { EmailVerificationService } from './email-verification.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ActivityLogsService } from '../activity-logs/activity-logs.service';
 import type { LoginDto } from './dto/login.dto';
@@ -14,6 +16,7 @@ describe('AuthService', () => {
   let service: AuthService;
   const prisma = {
     user: {
+      findFirst: jest.fn(),
       findUnique: jest.fn(),
       findUniqueOrThrow: jest.fn(),
       create: jest.fn(),
@@ -26,10 +29,19 @@ describe('AuthService', () => {
     verifyWallet: jest.fn().mockResolvedValue(true),
     isConfigured: false,
   };
+  const walletAuth = {
+    verify: jest.fn().mockReturnValue(true),
+    issueChallenge: jest.fn(),
+  };
+  const emailVerification = {
+    issue: jest.fn(),
+    verify: jest.fn(),
+    resend: jest.fn(),
+  };
   const activityLogs = { record: jest.fn() };
 
   const baseDto: LoginDto = {
-    email: 'maria@empresa.com',
+    email: 'maria@company.com',
     provider: 'google',
     stellarAddress: STELLAR_ADDRESS,
   };
@@ -38,7 +50,9 @@ describe('AuthService', () => {
     jest.clearAllMocks();
     pollar.verifyWallet.mockResolvedValue(true);
     pollar.isConfigured = false;
+    walletAuth.verify.mockReturnValue(true);
     jwt.signAsync.mockResolvedValue('signed.jwt');
+    prisma.user.findFirst.mockResolvedValue(null);
 
     const moduleRef = await Test.createTestingModule({
       providers: [
@@ -46,6 +60,8 @@ describe('AuthService', () => {
         { provide: PrismaService, useValue: prisma },
         { provide: JwtService, useValue: jwt },
         { provide: PollarService, useValue: pollar },
+        { provide: WalletAuthService, useValue: walletAuth },
+        { provide: EmailVerificationService, useValue: emailVerification },
         { provide: ActivityLogsService, useValue: activityLogs },
       ],
     }).compile();
@@ -142,7 +158,10 @@ describe('AuthService', () => {
   });
 
   it('blocks rebinding an existing account to a new wallet without Pollar verification', async () => {
-    prisma.user.findUnique.mockResolvedValue({
+    // Returning user is identified by their wallet (pollarWalletId), then
+    // presents a different Stellar address. Rebinding must be refused without
+    // server-side Pollar verification.
+    prisma.user.findFirst.mockResolvedValue({
       id: 'u1',
       email: baseDto.email,
       role: 'freelancer',
@@ -151,8 +170,32 @@ describe('AuthService', () => {
       wallets: [],
     });
 
-    await expect(service.login(baseDto)).rejects.toThrow(
-      'Wallet rebinding requires server-side Pollar verification',
+    await expect(
+      service.login({ ...baseDto, pollarWalletId: 'wal_old' }),
+    ).rejects.toThrow('Wallet rebinding requires server-side Pollar verification');
+    expect(prisma.user.update).not.toHaveBeenCalled();
+  });
+
+  it('does not let the email fallback rebind a fully claimed account (takeover blocked)', async () => {
+    // Attacker knows a victim's email and connects their OWN wallet. The wallet
+    // lookup misses (first findFirst -> null), and the email fallback is
+    // restricted to shell accounts (stellarAddress: null), so the claimed
+    // victim is never matched: the attacker falls through to register(), where
+    // the unique-email constraint rejects the duplicate.
+    prisma.user.findFirst.mockResolvedValue(null); // wallet miss AND shell miss
+    prisma.user.create.mockRejectedValue(
+      new Error('Unique constraint failed on the fields: (`email`)'),
+    );
+
+    await expect(
+      service.login({ ...baseDto, role: 'freelancer' }),
+    ).rejects.toThrow();
+
+    // The email fallback queried only for an unclaimed shell account.
+    expect(prisma.user.findFirst).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        where: { email: baseDto.email, stellarAddress: null },
+      }),
     );
     expect(prisma.user.update).not.toHaveBeenCalled();
   });

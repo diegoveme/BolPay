@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import type { Notification } from '@bolpay/shared';
 import { api, apiErrorMessage } from '@/lib/api';
 import { formatDateTime } from '@/lib/format';
-import { useNotificationsUi } from '@/notifications/NotificationsContext';
 import {
   Button,
   Card,
@@ -23,10 +22,13 @@ function targetOf(notification: Notification): string | null {
   return null;
 }
 
+/**
+ * Notifications inbox: lists all notifications, marks them read on click and
+ * deep-links to the related dispute, contract, or payroll.
+ */
 export function NotificationsPage() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const { resetUnreadDelta } = useNotificationsUi();
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['notifications', 'all'],
@@ -34,7 +36,6 @@ export function NotificationsPage() {
   });
 
   const invalidate = () => {
-    resetUnreadDelta();
     void queryClient.invalidateQueries({ queryKey: ['notifications'] });
   };
 
@@ -51,15 +52,15 @@ export function NotificationsPage() {
   return (
     <>
       <PageHeader
-        title="Notificaciones"
-        subtitle="Entregas, pagos, disputas y planillas en tiempo real"
+        title="Notifications"
+        subtitle="Deliverables, payments, disputes, and payroll in real time"
         actions={
           <Button
             variant="secondary"
             loading={markAll.isPending}
             onClick={() => markAll.mutate()}
           >
-            Marcar todo como leído
+            Mark all as read
           </Button>
         }
       />
@@ -69,7 +70,7 @@ export function NotificationsPage() {
         ) : error ? (
           <ErrorState message={apiErrorMessage(error)} />
         ) : !data || data.length === 0 ? (
-          <EmptyState title="Sin notificaciones" />
+          <EmptyState title="No notifications" />
         ) : (
           <table className="table table--clickable">
             <tbody>
