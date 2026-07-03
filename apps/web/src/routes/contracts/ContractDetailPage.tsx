@@ -113,21 +113,15 @@ export function ContractDetailPage() {
     onError: (err) => pushToast(apiErrorMessage(err)),
   });
 
-  // Non-custodial release: the company signs the approve, then the release.
+  // The company signs ONLY the approval; the platform then executes the release
+  // to the freelancer (a single signature covers approve + payout).
   const approveRelease = useMutation({
     mutationFn: async (milestoneId: string) => {
       const a = await api.post<{ approveXdr: string | null }>(
         `/milestones/${milestoneId}/approve/prepare`,
       );
       if (a.data.approveXdr) await sign(a.data.approveXdr);
-      const r = await api.post<{ releaseXdr: string | null }>(
-        `/milestones/${milestoneId}/release/prepare`,
-      );
-      const txHash = r.data.releaseXdr ? await sign(r.data.releaseXdr) : undefined;
-      return api.post(
-        `/milestones/${milestoneId}/approve/confirm`,
-        txHash ? { txHash } : {},
-      );
+      return api.post(`/milestones/${milestoneId}/approve/confirm`);
     },
     onSuccess: () => {
       invalidate();
@@ -244,7 +238,15 @@ export function ContractDetailPage() {
             </div>
             <div>
               <p className="muted" style={{ fontSize: 13 }}>Funded</p>
-              <p>{formatUSDC(contract.escrow.fundedAmount)}</p>
+              {/* fundedAmount holds the expected total from deploy; show 0 until
+                  the escrow is actually funded (status leaves 'created'). */}
+              <p>
+                {formatUSDC(
+                  contract.escrow.status === 'created'
+                    ? '0'
+                    : contract.escrow.fundedAmount,
+                )}
+              </p>
             </div>
             <div>
               <p className="muted" style={{ fontSize: 13 }}>Released</p>
@@ -504,9 +506,8 @@ export function ContractDetailPage() {
             wallet.
           </p>
           <div className="modal__danger-note">
-            Your wallet will ask you to sign <strong>two transactions</strong>: first
-            approving the milestone and then releasing the funds. These are two
-            on-chain escrow steps (not an error), and the payment is irreversible.
+            Your wallet will ask you to sign the <strong>approval</strong>; BolPay
+            then releases the funds to the freelancer. The payment is irreversible.
           </div>
         </ConfirmModal>
       )}

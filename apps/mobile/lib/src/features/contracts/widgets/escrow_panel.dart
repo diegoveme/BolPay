@@ -36,7 +36,11 @@ class EscrowPanel extends StatelessWidget {
           ),
           DetailRow(
             label: 'Funded',
-            value: formatUsdc(escrow.fundedAmount),
+            // fundedAmount holds the expected total from deploy; show 0 until
+            // the escrow is actually funded (status leaves 'created').
+            value: formatUsdc(
+              escrow.status == 'created' ? '0' : escrow.fundedAmount,
+            ),
             mono: true,
           ),
           DetailRow(

@@ -108,9 +108,10 @@ export class MilestonesService {
       }),
     ]);
 
-    // On-chain "Completed" mark is signed by the freelancer themselves (TW
+    // The on-chain "Completed" mark is signed by the freelancer themselves (TW
     // requires the serviceProvider to sign it). The client does that via
-    // prepareDeliver after this DB submission; simulated mode skips it.
+    // prepareDeliver just BEFORE this save, so a rejected signature never leaves
+    // a submitted-but-unmarked milestone; simulated mode skips signing.
 
     await this.notifications.notify(
       milestone.contract.company.userId,
@@ -127,8 +128,11 @@ export class MilestonesService {
 
   /**
    * Build the change-status XDR for the freelancer to sign, marking the
-   * milestone delivered on-chain. Call after submitDeliverable. In simulated
-   * mode `deliverXdr` is null and the client skips signing.
+   * milestone delivered on-chain. The client signs this BEFORE saving the
+   * deliverable (so a rejected signature records nothing); the on-chain
+   * evidence therefore falls back to a generic "delivered" when no prior
+   * deliverable exists. In simulated mode `deliverXdr` is null and the client
+   * skips signing.
    */
   async prepareDeliver(id: string, user: AuthUser) {
     const milestone = await this.load(id);
@@ -154,7 +158,7 @@ export class MilestonesService {
     );
   }
 
-  // -- Non-custodial approve + release: signed by the company itself -----------
+  // -- Approve (company signs) + release (platform executes) -------------------
 
   /** Step 1: build the APPROVE XDR for the company to sign. */
   async prepareApprove(id: string, user: AuthUser) {
@@ -180,25 +184,14 @@ export class MilestonesService {
     );
   }
 
-  /** Step 2: build the RELEASE XDR (after the approve is on-chain). */
-  async prepareRelease(id: string, user: AuthUser) {
-    const milestone = await this.load(id);
-    this.assertCompanyOwner(milestone, user);
-    const escrow = milestone.contract.escrow;
-    if (!escrow) throw new BadRequestException('Contract has no escrow');
-    const companyAddress = milestone.contract.company.user.stellarAddress;
-    if (!companyAddress) {
-      throw new BadRequestException('Connect your wallet to release');
-    }
-    return this.escrowService.prepareMilestoneReleaseXdr(
-      escrow,
-      milestone,
-      companyAddress,
-    );
-  }
-
-  /** Step 3: record the release after the company signed approve + release. */
-  async confirmApprove(id: string, user: AuthUser, txHash?: string) {
+  /**
+   * Step 2: after the company signed the approve on-chain, the PLATFORM
+   * executes the release to the freelancer and the payout is recorded. The
+   * company signs a single transaction (the approval); it never signs the
+   * release. TW only lets the release run once the milestone is approved
+   * on-chain, so this cannot pay out without a real approval.
+   */
+  async confirmApprove(id: string, user: AuthUser) {
     const milestone = await this.load(id);
     this.assertCompanyOwner(milestone, user);
     if (milestone.status === 'released') return this.load(id); // idempotent
@@ -213,8 +206,7 @@ export class MilestonesService {
     // Atomic claim BEFORE the on-chain release: only one concurrent approval
     // flips submitted/in_review -> released. A second call claims 0 rows and
     // aborts, so the milestone can never be released (and paid) twice. If the
-    // release below throws, the exception propagates so the operator can
-    // recover; the settleHash fail-closed check still runs first.
+    // release below throws, the exception propagates so the operator can recover.
     const claimed = await this.prisma.milestone.updateMany({
       where: { id, status: { in: ['submitted', 'in_review'] } },
       data: { status: 'released' },
@@ -225,10 +217,9 @@ export class MilestonesService {
       );
     }
 
-    const hash = await this.escrowService.confirmMilestoneRelease(
+    const hash = await this.escrowService.releaseMilestoneAsPlatform(
       escrow,
       milestone,
-      txHash,
     );
 
     const latest = milestone.deliverables[0];

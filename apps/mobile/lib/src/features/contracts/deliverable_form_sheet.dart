@@ -59,19 +59,26 @@ class _DeliverableFormState extends State<_DeliverableForm> {
     if (_sending) return;
     setState(() => _sending = true);
     try {
+      // Mark the milestone delivered on-chain FIRST (custodial session signs
+      // and broadcasts; simulated mode has nothing to sign). Doing this before
+      // saving means a cancelled/failed signature records nothing, so the sheet
+      // only closes once the work is actually sent and a retry stays clean.
+      final xdr = await widget.milestones.prepareDeliver(widget.milestone.id);
+      if (!mounted) return;
+      final sign = await resolveSignature(context, xdr);
+      if (!sign.canProceed) {
+        // Cancelled, failed or a manual wallet (sign on the web app): nothing
+        // was recorded, so keep the sheet open for a clean retry.
+        if (mounted) setState(() => _sending = false);
+        return;
+      }
+      // Signed (or nothing to sign): record the deliverable and close.
       await widget.milestones.submitDeliverable(
         widget.milestone.id,
         linkUrl: _linkController.text.trim(),
         fileUrl: _fileController.text.trim(),
         note: _noteController.text.trim(),
       );
-      // Mark the milestone delivered on-chain. Simulated mode has nothing
-      // to sign; a custodial session signs and broadcasts the change-status
-      // transaction right here; a manual session is pointed to the web app
-      // (the deliverable itself is already saved either way).
-      final xdr = await widget.milestones.prepareDeliver(widget.milestone.id);
-      if (!mounted) return;
-      await resolveSignature(context, xdr);
       if (mounted) Navigator.of(context).pop(true);
     } catch (e) {
       if (mounted) {

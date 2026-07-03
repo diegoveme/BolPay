@@ -14,7 +14,7 @@ import type { AuthUser } from '../../common/types/auth';
 import {
   AddEvidenceDto,
   OpenDisputeDto,
-  ResolveDisputeDto,
+  ProposeResolutionDto,
 } from './dto/dispute.dto';
 
 const DISPUTE_INCLUDE = {
@@ -38,6 +38,7 @@ const DISPUTE_INCLUDE = {
     include: { submittedBy: { select: { id: true, email: true, role: true } } },
   },
   openedBy: { select: { id: true, email: true, role: true } },
+  proposedBy: { select: { id: true, email: true, role: true } },
   resolvedBy: { select: { id: true, email: true, role: true } },
 } satisfies Prisma.DisputeInclude;
 
@@ -117,12 +118,8 @@ export class DisputesService {
       }),
     ]);
 
-    const counterpartId =
-      milestone.contract.company.userId === user.id
-        ? milestone.contract.freelancer.userId
-        : milestone.contract.company.userId;
     await this.notifications.notify(
-      counterpartId,
+      this.counterpartId(milestone.contract, user.id),
       'dispute_opened',
       `Dispute opened on "${milestone.title}"`,
       { disputeId: dispute.id, milestoneId: milestone.id },
@@ -162,12 +159,8 @@ export class DisputesService {
       });
     }
 
-    const counterpartId =
-      dispute.milestone.contract.company.userId === user.id
-        ? dispute.milestone.contract.freelancer.userId
-        : dispute.milestone.contract.company.userId;
     await this.notifications.notify(
-      counterpartId,
+      this.counterpartId(dispute.milestone.contract, user.id),
       'dispute_opened',
       `New evidence on the dispute for "${dispute.milestone.title}"`,
       { disputeId: id },
@@ -175,66 +168,73 @@ export class DisputesService {
     return evidence;
   }
 
-  /** Escalate to the platform administrators. */
-  async escalate(id: string, user: AuthUser) {
+  /**
+   * Propose (or counter-propose) how the disputed milestone's funds are split.
+   * The proposal becomes the standing offer; the OTHER party accepts it (via
+   * accept()) or replaces it with their own. Nothing moves on-chain here, so a
+   * proposal is safe and reversible until accepted.
+   */
+  async propose(id: string, user: AuthUser, dto: ProposeResolutionDto) {
     const dispute = await this.load(id);
     this.assertParticipant(dispute, user);
-    if (!['open', 'under_review'].includes(dispute.status)) {
-      throw new BadRequestException(
-        `Cannot escalate a dispute in status "${dispute.status}"`,
-      );
+    if (['resolved', 'closed'].includes(dispute.status)) {
+      throw new BadRequestException('Dispute is already resolved');
     }
+
+    const milestone = dispute.milestone;
+    // Validate the split now so a malformed proposal never reaches the other
+    // party (also the single source of truth for the amounts stored below).
+    const { freelancerAmount, companyAmount } = this.computeDistribution(
+      dto,
+      milestone.amount,
+    );
 
     const updated = await this.prisma.dispute.update({
       where: { id },
-      data: { status: 'escalated' },
+      data: {
+        proposalOutcome: dto.outcome,
+        proposalFreelancerAmount: freelancerAmount,
+        proposalCompanyAmount: companyAmount,
+        proposalNote: dto.resolution,
+        proposedById: user.id,
+        proposedAt: new Date(),
+        // Surface that a negotiation is underway (a fresh dispute is `open`).
+        status: dispute.status === 'open' ? 'under_review' : dispute.status,
+      },
       include: DISPUTE_INCLUDE,
     });
 
-    const admins = await this.prisma.user.findMany({
-      where: { role: 'administrator' },
-      select: { id: true },
-    });
-    await Promise.all(
-      admins.map((admin) =>
-        this.notifications.notify(
-          admin.id,
-          'dispute_escalated',
-          `Dispute escalated: "${updated.milestone.title}" (${updated.milestone.contract.title})`,
-          { disputeId: id },
-        ),
-      ),
+    await this.notifications.notify(
+      this.counterpartId(milestone.contract, user.id),
+      'dispute_opened',
+      `New resolution proposed for "${milestone.title}"`,
+      { disputeId: id, milestoneId: milestone.id },
     );
-    await this.activityLogs.record(user.id, 'dispute.escalated', {
+    await this.activityLogs.record(user.id, 'dispute.proposed', {
       disputeId: id,
+      outcome: dto.outcome,
     });
     return updated;
   }
 
   /**
-   * Execute a resolution over the escrow. Mutual path: the counterpart (not
-   * the opener) accepts an outcome while the dispute is open/under review.
-   * Escalated disputes are resolved by an administrator.
+   * Accept the standing proposal and execute its split on-chain. Only the party
+   * that did NOT make the current proposal can accept it - that is what makes
+   * the resolution mutual. Without a proposal there is nothing to accept.
    */
-  async resolve(id: string, user: AuthUser, dto: ResolveDisputeDto) {
+  async accept(id: string, user: AuthUser) {
     const dispute = await this.load(id);
+    this.assertParticipant(dispute, user);
     if (['resolved', 'closed'].includes(dispute.status)) {
       throw new BadRequestException('Dispute is already resolved');
     }
-
-    const isAdmin = user.role === 'administrator';
-    if (dispute.status === 'escalated' && !isAdmin) {
-      throw new ForbiddenException(
-        'Escalated disputes are resolved by an administrator',
-      );
+    if (!dispute.proposedById || !dispute.proposalOutcome) {
+      throw new BadRequestException('There is no resolution proposal to accept');
     }
-    if (!isAdmin) {
-      this.assertParticipant(dispute, user);
-      if (dispute.openedById === user.id) {
-        throw new ForbiddenException(
-          'Mutual resolution must be accepted by the other party (or escalate to an administrator)',
-        );
-      }
+    if (dispute.proposedById === user.id) {
+      throw new ForbiddenException(
+        'The other party must accept your proposal (or counter-propose)',
+      );
     }
 
     const milestone = dispute.milestone;
@@ -250,24 +250,26 @@ export class DisputesService {
       );
     }
 
-    const { freelancerAmount, companyAmount } = this.computeDistribution(
-      dto,
-      milestone.amount,
-    );
+    // Settle exactly the agreed proposal (already validated at propose time).
+    const freelancerAmount =
+      dispute.proposalFreelancerAmount ?? new Prisma.Decimal(0);
+    const companyAmount =
+      dispute.proposalCompanyAmount ?? new Prisma.Decimal(0);
 
-    // Atomic claim BEFORE the on-chain resolution: only the first resolver flips
-    // the dispute out of an open state (notIn resolved/closed). A concurrent
-    // second resolve claims 0 rows and aborts, so the escrow is settled once. If
-    // the on-chain call below throws, the exception propagates and the operator
-    // recovers a dispute marked resolved with no settlement.
+    // Atomic claim BEFORE the on-chain resolution: only the first accept flips
+    // the dispute out of an open state (notIn resolved/closed), so a concurrent
+    // second accept claims 0 rows and aborts and the escrow settles once. If the
+    // on-chain call then fails we revert the claim (below) so it stays retryable
+    // instead of bricking the dispute as "resolved" with no payout.
+    const previousStatus = dispute.status;
     const claimed = await this.prisma.dispute.updateMany({
       where: { id, status: { notIn: ['resolved', 'closed'] } },
       data: {
         status: 'resolved',
-        outcome: dto.outcome,
+        outcome: dispute.proposalOutcome,
         freelancerAmount,
         companyAmount,
-        resolution: dto.resolution,
+        resolution: dispute.proposalNote,
         resolvedById: user.id,
         resolvedAt: new Date(),
       },
@@ -276,16 +278,23 @@ export class DisputesService {
       throw new BadRequestException('Dispute is already resolved');
     }
 
-    const txHash = await this.escrowService.resolveMilestoneDispute(
-      escrow,
-      milestone,
-      {
+    let txHash: string;
+    try {
+      txHash = await this.escrowService.resolveMilestoneDispute(escrow, milestone, {
         freelancerAddress,
         freelancerAmount,
         companyAddress,
         companyAmount,
-      },
-    );
+      });
+    } catch (err) {
+      // Release the claim so a failed settlement can be retried. Only the status
+      // is reverted; the stale resolution fields are overwritten on the retry.
+      await this.prisma.dispute.update({
+        where: { id },
+        data: { status: previousStatus },
+      });
+      throw err;
+    }
 
     await this.prisma.milestone.update({
       where: { id: milestone.id },
@@ -299,24 +308,18 @@ export class DisputesService {
         contract.company.userId,
         'dispute_resolved',
         message,
-        {
-          disputeId: id,
-          txHash,
-        },
+        { disputeId: id, txHash },
       ),
       this.notifications.notify(
         contract.freelancer.userId,
         'dispute_resolved',
         message,
-        {
-          disputeId: id,
-          txHash,
-        },
+        { disputeId: id, txHash },
       ),
     ]);
     await this.activityLogs.record(user.id, 'dispute.resolved', {
       disputeId: id,
-      outcome: dto.outcome,
+      outcome: dispute.proposalOutcome,
       txHash,
     });
 
@@ -417,9 +420,19 @@ export class DisputesService {
       throw new ForbiddenException('You are not a party to this dispute');
   }
 
-  /** Translate the outcome into on-chain distribution amounts. */
+  /** The other party (company <-> freelancer) to notify about an action. */
+  private counterpartId(
+    contract: { company: { userId: string }; freelancer: { userId: string } },
+    userId: string,
+  ): string {
+    return contract.company.userId === userId
+      ? contract.freelancer.userId
+      : contract.company.userId;
+  }
+
+  /** Translate a proposed outcome into on-chain distribution amounts. */
   private computeDistribution(
-    dto: ResolveDisputeDto,
+    dto: ProposeResolutionDto,
     milestoneAmount: Prisma.Decimal,
   ) {
     switch (dto.outcome) {

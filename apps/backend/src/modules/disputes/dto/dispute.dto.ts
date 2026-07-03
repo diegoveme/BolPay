@@ -42,8 +42,11 @@ export class AddEvidenceDto {
   comment?: string;
 }
 
-/** Payload to resolve a dispute and define the on-chain distribution. */
-export class ResolveDisputeDto {
+/**
+ * Payload to propose (or counter-propose) how a disputed milestone's funds are
+ * split. The other party must accept the standing proposal before it executes.
+ */
+export class ProposeResolutionDto {
   @ApiProperty({ enum: DisputeOutcome })
   @IsEnum(DisputeOutcome)
   outcome!: DisputeOutcome;

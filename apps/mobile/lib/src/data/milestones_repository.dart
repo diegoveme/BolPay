@@ -53,24 +53,11 @@ class MilestonesRepository {
     return json?['approveXdr'] as String?;
   }
 
-  /// POST /milestones/:id/release/prepare (company). Returns the release
-  /// XDR or null in simulated mode. The release txHash is the one sent to
-  /// [confirmApprove].
-  Future<String?> prepareRelease(String milestoneId) async {
-    final json =
-        await _api.post('/milestones/$milestoneId/release/prepare')
-            as Map<String, dynamic>?;
-    return json?['releaseXdr'] as String?;
-  }
-
-  /// POST /milestones/:id/approve/confirm (company). Records the payout;
-  /// [txHash] is required in trustless_work mode and omitted in simulated
-  /// mode.
-  Future<void> confirmApprove(String milestoneId, {String? txHash}) async {
-    await _api.post(
-      '/milestones/$milestoneId/approve/confirm',
-      body: {if (txHash != null && txHash.isNotEmpty) 'txHash': txHash},
-    );
+  /// POST /milestones/:id/approve/confirm (company). After the company signs
+  /// the approval, the PLATFORM executes the release to the freelancer, so no
+  /// txHash is sent from the client.
+  Future<void> confirmApprove(String milestoneId) async {
+    await _api.post('/milestones/$milestoneId/approve/confirm');
   }
 
   /// POST /milestones/:id/request-changes (company) with review feedback.

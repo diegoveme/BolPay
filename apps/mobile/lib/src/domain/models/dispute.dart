@@ -58,9 +58,11 @@ class DisputeMilestone {
 }
 
 /// Dispute over a milestone. While open, the milestone is paused and the
-/// funds stay locked in escrow.
+/// funds stay locked in escrow. Resolution is mutual: one party proposes a
+/// split and the OTHER party accepts it (or counter-proposes) before it runs
+/// on-chain. `proposedById != null` means a proposal is on the table.
 ///
-/// Statuses: `open`, `under_review`, `escalated`, `resolved`, `closed`.
+/// Statuses: `open`, `under_review`, `resolved`, `closed`.
 /// Resolution outcomes: `release_to_freelancer`, `refund_to_company`,
 /// `split`.
 class Dispute {
@@ -76,6 +78,13 @@ class Dispute {
     this.resolution,
     this.freelancerAmount,
     this.companyAmount,
+    this.proposalOutcome,
+    this.proposalFreelancerAmount,
+    this.proposalCompanyAmount,
+    this.proposalNote,
+    this.proposedById,
+    this.proposedByEmail,
+    this.proposedAt,
     this.evidence = const [],
     this.createdAt,
     this.resolvedAt,
@@ -92,17 +101,30 @@ class Dispute {
   final String? resolution;
   final String? freelancerAmount;
   final String? companyAmount;
+  // Standing resolution proposal awaiting the other party's acceptance.
+  final String? proposalOutcome;
+  final String? proposalFreelancerAmount;
+  final String? proposalCompanyAmount;
+  final String? proposalNote;
+  final String? proposedById;
+  final String? proposedByEmail;
+  final String? proposedAt;
   final List<DisputeEvidence> evidence;
   final String? createdAt;
   final String? resolvedAt;
 
-  static const openStates = {'open', 'under_review', 'escalated'};
+  static const openStates = {'open', 'under_review'};
 
   bool get isOpen => openStates.contains(status);
   bool get isResolved => status == 'resolved';
 
+  /// Whether a resolution proposal is currently on the table.
+  bool get hasProposal =>
+      proposedById != null && proposedById!.isNotEmpty;
+
   factory Dispute.fromJson(Map<String, dynamic> json) {
     final openedBy = json['openedBy'] as Map<String, dynamic>?;
+    final proposedBy = json['proposedBy'] as Map<String, dynamic>?;
     final resolvedBy = json['resolvedBy'] as Map<String, dynamic>?;
     return Dispute(
       id: (json['id'] ?? '').toString(),
@@ -118,6 +140,13 @@ class Dispute {
       resolution: json['resolution'] as String?,
       freelancerAmount: json['freelancerAmount']?.toString(),
       companyAmount: json['companyAmount']?.toString(),
+      proposalOutcome: json['proposalOutcome']?.toString(),
+      proposalFreelancerAmount: json['proposalFreelancerAmount']?.toString(),
+      proposalCompanyAmount: json['proposalCompanyAmount']?.toString(),
+      proposalNote: json['proposalNote'] as String?,
+      proposedById: (json['proposedById'] ?? proposedBy?['id'])?.toString(),
+      proposedByEmail: proposedBy?['email'] as String?,
+      proposedAt: json['proposedAt'] as String?,
       evidence: (json['evidence'] as List<dynamic>? ?? [])
           .whereType<Map<String, dynamic>>()
           .map(DisputeEvidence.fromJson)

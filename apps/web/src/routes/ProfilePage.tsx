@@ -54,6 +54,10 @@ export function ProfilePage() {
     setFreelancer((s) => ({ ...s, [k]: v }));
 
   const clean = (v: string) => v.trim() || undefined;
+  // Avatar is sent as explicit null when empty (not undefined) so clearing it
+  // actually removes the stored image; undefined would omit the field and keep
+  // the old value.
+  const avatarOrNull = (v: string) => v.trim() || null;
 
   const saveProfile = useMutation({
     mutationFn: async () => {
@@ -65,7 +69,7 @@ export function ProfilePage() {
           website: clean(company.website),
           industry: clean(company.industry),
           values: clean(company.values),
-          avatarUrl: clean(company.avatarUrl),
+          avatarUrl: avatarOrNull(company.avatarUrl),
         });
       }
       return api.patch('/users/me/freelancer-profile', {
@@ -80,7 +84,7 @@ export function ProfilePage() {
         website: clean(freelancer.website),
         linkedin: clean(freelancer.linkedin),
         github: clean(freelancer.github),
-        avatarUrl: clean(freelancer.avatarUrl),
+        avatarUrl: avatarOrNull(freelancer.avatarUrl),
       });
     },
     onSuccess: () => {

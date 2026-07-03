@@ -27,17 +27,21 @@ export function DeliverableModal({
 
   const submit = useMutation({
     mutationFn: async () => {
+      // Mark the milestone delivered on-chain FIRST: the freelancer signs it
+      // with their own wallet (null XDR in simulated mode, nothing to sign).
+      // Signing before saving means a rejected/failed signature records
+      // nothing, so the modal closes only once the work is actually sent and a
+      // retry stays clean (no half-submitted milestone).
+      const { data } = await api.post<{ deliverXdr: string | null }>(
+        `/milestones/${milestone.id}/deliver/prepare`,
+      );
+      if (data.deliverXdr) await sign(data.deliverXdr);
+      // Signed (or nothing to sign): now record the deliverable.
       await api.post(`/milestones/${milestone.id}/deliverables`, {
         linkUrl: linkUrl.trim() || undefined,
         fileUrl: fileUrl.trim() || undefined,
         note: note.trim() || undefined,
       });
-      // Mark the milestone delivered on-chain: the freelancer signs it with
-      // their own wallet. Null XDR in simulated mode (nothing to sign).
-      const { data } = await api.post<{ deliverXdr: string | null }>(
-        `/milestones/${milestone.id}/deliver/prepare`,
-      );
-      if (data.deliverXdr) await sign(data.deliverXdr);
     },
     onSuccess: onDone,
     onError: (err) => pushToast(apiErrorMessage(err)),

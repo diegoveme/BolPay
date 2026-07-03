@@ -1,8 +1,13 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { UserRole } from '@prisma/client';
 import * as nodemailer from 'nodemailer';
 import type { Transporter } from 'nodemailer';
+
+/** Content-ID for the inline BolPay logo referenced by the email header. */
+const LOGO_CID = 'bolpay-logo';
 
 /**
  * Transactional email over SMTP (Gmail, Brevo, any SMTP provider) via Nodemailer.
@@ -19,6 +24,8 @@ export class MailService {
   private readonly transporter: Transporter | null;
   private readonly from: string;
   private readonly isDev: boolean;
+  /** Small PNG logo embedded inline in every email (null if not found). */
+  private readonly logo: Buffer | null;
 
   constructor(config: ConfigService) {
     const host = config.get<string>('mail.smtpHost') ?? '';
@@ -44,6 +51,20 @@ export class MailService {
       this.logger.warn(
         'SMTP not configured (SMTP_HOST/SMTP_USER/SMTP_PASS) - emails will be logged, not sent.',
       );
+    }
+
+    this.logo = this.loadLogo();
+  }
+
+  /** Read the inline email logo once at startup; text-only header if missing. */
+  private loadLogo(): Buffer | null {
+    try {
+      return readFileSync(join(process.cwd(), 'assets', 'logo.png'));
+    } catch {
+      this.logger.warn(
+        'Email logo not found at assets/logo.png - using a text-only header.',
+      );
+      return null;
     }
   }
 
@@ -122,7 +143,23 @@ export class MailService {
       return;
     }
     try {
-      await this.transporter.sendMail({ from: this.from, ...message });
+      await this.transporter.sendMail({
+        from: this.from,
+        ...message,
+        // Embed the logo inline (CID) so it renders without remote-image
+        // blocking; contentDisposition 'inline' keeps it out of the attachment
+        // list. Skipped entirely when the logo file is missing.
+        attachments: this.logo
+          ? [
+              {
+                filename: 'bolpay.png',
+                content: this.logo,
+                cid: LOGO_CID,
+                contentDisposition: 'inline',
+              },
+            ]
+          : undefined,
+      });
     } catch (error) {
       this.logger.warn(
         `SMTP send to ${message.to} failed: ${(error as Error).message}`,
@@ -138,7 +175,11 @@ export class MailService {
   }
 
   private layout(title: string, body: string): string {
+    const logo = this.logo
+      ? `<img src="cid:${LOGO_CID}" alt="BolPay" width="72" height="72" style="display:block;border:0;margin:0 0 12px" />`
+      : '';
     return `<div style="font-family:Inter,Arial,sans-serif;max-width:480px;margin:0 auto;padding:24px">
+      ${logo}
       <h1 style="font-size:20px;margin:0 0 16px">BolPay</h1>
       <h2 style="font-size:16px;margin:0 0 12px">${this.escapeHtml(title)}</h2>
       ${body}

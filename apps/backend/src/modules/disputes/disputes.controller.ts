@@ -13,7 +13,7 @@ import { DisputesService } from './disputes.service';
 import {
   AddEvidenceDto,
   OpenDisputeDto,
-  ResolveDisputeDto,
+  ProposeResolutionDto,
 } from './dto/dispute.dto';
 
 @ApiTags('disputes')
@@ -63,26 +63,29 @@ export class DisputesController {
     return this.disputesService.addEvidence(id, user, dto);
   }
 
-  /** Escalate the dispute to the platform administrators. */
-  @Post(':id/escalate')
-  escalate(
+  /** Propose (or counter-propose) how the disputed funds should be split. */
+  @Post(':id/propose')
+  @ApiOperation({
+    summary: 'Propose a fund split for the other party to accept or counter',
+  })
+  propose(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: AuthUser,
+    @Body() dto: ProposeResolutionDto,
   ) {
-    return this.disputesService.escalate(id, user);
+    return this.disputesService.propose(id, user, dto);
   }
 
-  /** Resolve the dispute and execute the agreed distribution on-chain. */
-  @Post(':id/resolve')
+  /** Accept the standing proposal and execute the split on-chain. */
+  @Post(':id/accept')
   @ApiOperation({
     summary:
-      'Resolve the dispute (counterpart accepts, or an administrator when escalated) and execute the distribution on-chain',
+      'Accept the other party\'s proposal and execute the agreed split on-chain',
   })
-  resolve(
+  accept(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: AuthUser,
-    @Body() dto: ResolveDisputeDto,
   ) {
-    return this.disputesService.resolve(id, user, dto);
+    return this.disputesService.accept(id, user);
   }
 }

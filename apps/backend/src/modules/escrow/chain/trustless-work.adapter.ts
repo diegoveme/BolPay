@@ -7,6 +7,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { Keypair, Networks, TransactionBuilder } from '@stellar/stellar-sdk';
 import type {
+  ChainDistribution,
   ChainTxResult,
   DeployEscrowParams,
   DeployResult,
@@ -187,31 +188,17 @@ export class TrustlessWorkAdapter implements EscrowChainAdapter {
     return unsignedTransaction;
   }
 
-  /** Non-custodial: unsigned release XDR for the company (release signer) to sign. */
-  async buildReleaseXdr(
-    contractId: string,
-    milestoneIndex: number,
-    releaseSigner: string,
-  ): Promise<string | null> {
-    const { unsignedTransaction } = await this.post<{
-      unsignedTransaction: string;
-    }>('/escrow/multi-release/release-milestone-funds', {
-      contractId,
-      milestoneIndex: String(milestoneIndex),
-      releaseSigner,
-    });
-    return unsignedTransaction;
-  }
-
   /** Non-custodial: unsigned dispute XDR for a party (company/freelancer). */
   async buildDisputeXdr(
     contractId: string,
     milestoneIndex: number,
     signer: string,
   ): Promise<string | null> {
+    // Multi-release escrows dispute a single milestone: `dispute-milestone`.
+    // (`dispute-escrow` is the single-release path and 404s here.)
     const { unsignedTransaction } = await this.post<{
       unsignedTransaction: string;
-    }>('/escrow/multi-release/dispute-escrow', {
+    }>('/escrow/multi-release/dispute-milestone', {
       contractId,
       milestoneIndex: String(milestoneIndex),
       signer,
@@ -222,11 +209,15 @@ export class TrustlessWorkAdapter implements EscrowChainAdapter {
   async resolveDispute(
     contractId: string,
     milestoneIndex: number,
-    distributions: [string, string][],
+    distributions: ChainDistribution[],
   ): Promise<ChainTxResult> {
+    // Multi-release resolves a single milestone dispute:
+    // `resolve-milestone-dispute` (`resolve-dispute` is single-release, 404s).
+    // TW wants distributions as { address, amount } objects with a numeric
+    // amount, and rejects any amount <= 0 (callers omit zero shares).
     const { unsignedTransaction } = await this.post<{
       unsignedTransaction: string;
-    }>('/escrow/multi-release/resolve-dispute', {
+    }>('/escrow/multi-release/resolve-milestone-dispute', {
       contractId,
       milestoneIndex: String(milestoneIndex),
       disputeResolver: this.platformAddress,

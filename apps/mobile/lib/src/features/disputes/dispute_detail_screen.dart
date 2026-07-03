@@ -16,11 +16,12 @@ import 'widgets/dispute_evidence_thread.dart';
 import 'widgets/dispute_reason_card.dart';
 import 'widgets/dispute_resolution_section.dart';
 import 'widgets/evidence_sheet.dart';
-import 'widgets/resolve_sheet.dart';
+import 'widgets/propose_sheet.dart';
 
 /// Dispute detail: context, reason, evidence thread and the mutual
-/// resolution flow (web parity). The party who opened the dispute cannot
-/// resolve it; an administrator can resolve escalated disputes.
+/// resolution flow (web parity). Either party can propose how the funds are
+/// split; only the party that did NOT make the standing proposal can accept
+/// it (executing it on-chain) or counter-propose.
 class DisputeDetailScreen extends StatefulWidget {
   const DisputeDetailScreen({super.key, required this.disputeId});
 
@@ -77,48 +78,50 @@ class _DisputeDetailScreenState extends State<DisputeDetailScreen> {
     }
   }
 
-  Future<void> _resolve(Dispute dispute) async {
-    final input = await showResolveSheet(context, dispute: dispute);
+  /// Propose or counter-propose a split. Proposing does not move money, so it
+  /// needs no confirmation; the other party must accept before it settles.
+  Future<void> _propose(Dispute dispute) async {
+    final input = await showProposeSheet(context, dispute: dispute);
     if (input == null || !mounted) return;
-
-    final amount = formatUsdc(dispute.milestone?.amount);
-    final (confirmLabel, body) = switch (input.outcome) {
-      'release_to_freelancer' => (
-        'Release $amount to the freelancer',
-        'The full $amount held in escrow will be released to the '
-            "freelancer's wallet.",
-      ),
-      'refund_to_company' => (
-        'Refund $amount to the company',
-        'The full $amount held in escrow will be refunded to the '
-            "company's wallet.",
-      ),
-      _ => (
-        'Split $amount',
-        'The escrow will send ${formatUsdc(input.freelancerAmount)} to the '
-            'freelancer and ${formatUsdc(input.companyAmount)} to the '
-            'company.',
-      ),
-    };
-    final confirmed = await showConfirmSheet(
-      context,
-      title: 'Resolve dispute',
-      body: body,
-      confirmLabel: confirmLabel,
-      danger: true,
-      dangerNote: 'The resolution is executed on-chain and cannot be undone.',
-    );
-    if (confirmed != true || !mounted) return;
 
     setState(() => _busy = true);
     try {
-      await AppScope.read(context).disputes.resolve(
+      await AppScope.read(context).disputes.propose(
         widget.disputeId,
         outcome: input.outcome,
         resolution: input.resolution,
         freelancerAmount: input.freelancerAmount,
         companyAmount: input.companyAmount,
       );
+      if (mounted) showSuccessSnackBar(context, 'Proposal sent.');
+      await _load();
+    } catch (e) {
+      if (mounted) showErrorSnackBar(context, e);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  /// Accept the standing proposal and execute the split on-chain. Confirmed
+  /// first because it moves the escrowed funds and cannot be undone.
+  Future<void> _accept(Dispute dispute) async {
+    final toFreelancer = formatUsdc(dispute.proposalFreelancerAmount ?? '0');
+    final toCompany = formatUsdc(dispute.proposalCompanyAmount ?? '0');
+    final confirmed = await showConfirmSheet(
+      context,
+      title: 'Accept resolution',
+      body:
+          'Accepting executes the agreed split on the escrow: $toFreelancer to '
+          'the freelancer and $toCompany to the company.',
+      confirmLabel: 'Execute resolution',
+      danger: true,
+      dangerNote: 'This runs on-chain and cannot be undone.',
+    );
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _busy = true);
+    try {
+      await AppScope.read(context).disputes.accept(widget.disputeId);
       if (mounted) showSuccessSnackBar(context, 'Dispute resolved.');
       await _load();
     } catch (e) {
@@ -176,10 +179,12 @@ class _DisputeDetailScreenState extends State<DisputeDetailScreen> {
               ),
               if (dispute.isOpen) ...[
                 const SizedBox(height: 16),
-                DisputeResolveCard(
-                  canResolve: _canResolve(dispute),
+                DisputeNegotiationCard(
+                  dispute: dispute,
+                  isProposer: _isProposer(dispute),
                   busy: _busy,
-                  onResolve: () => _resolve(dispute),
+                  onPropose: () => _propose(dispute),
+                  onAccept: () => _accept(dispute),
                 ),
               ],
             ],
@@ -189,15 +194,10 @@ class _DisputeDetailScreenState extends State<DisputeDetailScreen> {
     );
   }
 
-  /// Who may resolve an open dispute: the counterparty settles it, and an
-  /// administrator can resolve it once escalated. The opener never resolves
-  /// their own.
-  bool _canResolve(Dispute dispute) {
+  /// Whether the current user made the standing proposal. The proposer cannot
+  /// accept their own proposal, so they only get to change or counter it.
+  bool _isProposer(Dispute dispute) {
     final user = AppScope.of(context).auth.user;
-    final isOpener = user != null && user.id == dispute.openedById;
-    final isAdmin = user?.role == 'administrator';
-    return user != null &&
-        ((!isOpener && dispute.isOpen) ||
-            (isAdmin && dispute.status == 'escalated'));
+    return user != null && user.id == dispute.proposedById;
   }
 }

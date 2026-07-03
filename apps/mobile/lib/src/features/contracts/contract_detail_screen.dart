@@ -135,24 +135,19 @@ class _ContractDetailScreenState extends State<ContractDetailScreen> {
       confirmLabel: 'Release $amount',
       danger: true,
       dangerNote:
-          'Your wallet will ask you to sign two transactions: first '
-          'approving the milestone and then releasing the funds. These '
-          'are two on-chain escrow steps (not an error), and the payment '
-          'is irreversible.',
+          'Your wallet will ask you to sign the approval; BolPay then '
+          'releases the funds to the freelancer. The payment is irreversible.',
     );
     if (confirmed != true || !mounted) return;
     final repo = AppScope.read(context).milestones;
     await _run(() async {
+      // The company signs ONLY the approval; the platform then executes the
+      // release to the freelancer (a single signature covers approve + payout).
       final approveXdr = await repo.prepareApprove(milestone.id);
       if (!mounted) return false;
       final approveSign = await resolveSignature(context, approveXdr);
       if (!approveSign.canProceed) return false;
-      final releaseXdr = await repo.prepareRelease(milestone.id);
-      if (!mounted) return false;
-      final releaseSign = await resolveSignature(context, releaseXdr);
-      if (!releaseSign.canProceed) return false;
-      // The release hash is the on-chain payment recorded by the backend.
-      await repo.confirmApprove(milestone.id, txHash: releaseSign.txHash);
+      await repo.confirmApprove(milestone.id);
       return true;
     }, successMessage: 'Milestone approved: funds released to the freelancer');
   }

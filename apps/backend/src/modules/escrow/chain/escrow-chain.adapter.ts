@@ -26,8 +26,13 @@ export interface EscrowRoles {
   approver: string;
   /** Delivers the work (the freelancer). */
   serviceProvider: string;
-  /** Releases approved milestone funds (the company). */
-  releaseSigner: string;
+  /**
+   * Releases approved milestone funds. Omit to default to the platform, which
+   * executes the payout to the milestone's locked receiver (the freelancer)
+   * after the company approves. It can only pay that fixed address, never
+   * redirect/skim, so a single company approval covers approve + payout.
+   */
+  releaseSigner?: string;
   /**
    * Executes the mutually-agreed dispute resolution on-chain. Omit to default
    * to the platform: it can only split the locked funds between the two
@@ -44,6 +49,16 @@ export interface DeployEscrowParams {
   milestones: ChainMilestone[];
   /** Non-custodial role addresses; omit in simulated mode. */
   roles?: EscrowRoles;
+}
+
+/**
+ * One recipient share of a resolved dispute. Trustless Work expects objects
+ * with a NUMBER amount (not [address, amount] tuples), and rejects amounts <= 0,
+ * so callers must omit any zero share.
+ */
+export interface ChainDistribution {
+  address: string;
+  amount: number;
 }
 
 export interface ChainTxResult {
@@ -108,13 +123,6 @@ export interface EscrowChainAdapter {
     approver: string,
   ): Promise<string | null>;
 
-  /** Non-custodial: unsigned XDR for the release signer (company) to sign. null = simulated. */
-  buildReleaseXdr(
-    contractId: string,
-    milestoneIndex: number,
-    releaseSigner: string,
-  ): Promise<string | null>;
-
   /**
    * Non-custodial: unsigned dispute XDR for a PARTY to sign. TW only lets a
    * party (company or freelancer) open a dispute, so this is signed by whoever
@@ -130,7 +138,7 @@ export interface EscrowChainAdapter {
   resolveDispute(
     contractId: string,
     milestoneIndex: number,
-    distributions: [address: string, amount: string][],
+    distributions: ChainDistribution[],
   ): Promise<ChainTxResult>;
 
   /**

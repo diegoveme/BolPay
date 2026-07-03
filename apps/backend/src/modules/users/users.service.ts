@@ -217,9 +217,14 @@ export class UsersService {
 
   /** Invite a user by email, persist the invitation and email the link. */
   async createInvitation(user: AuthUser, dto: CreateInvitationDto) {
-    if (dto.role === 'administrator' && user.role !== 'administrator') {
+    // Only administrators can create company or administrator accounts by
+    // invitation; companies may only invite freelancers or fixed employees.
+    if (
+      (dto.role === 'administrator' || dto.role === 'company') &&
+      user.role !== 'administrator'
+    ) {
       throw new ForbiddenException(
-        'Only administrators can invite administrators',
+        'Only administrators can invite companies or administrators',
       );
     }
 

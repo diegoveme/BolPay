@@ -66,10 +66,11 @@ class DisputesRepository {
     );
   }
 
-  /// POST /disputes/:id/resolve. [outcome] is `release_to_freelancer`,
-  /// `refund_to_company` or `split`; for split the two amounts must sum
-  /// exactly to the milestone amount.
-  Future<void> resolve(
+  /// POST /disputes/:id/propose: proposes (or counter-proposes) how the funds
+  /// are split. [outcome] is `release_to_freelancer`, `refund_to_company` or
+  /// `split`; for split the two amounts must sum exactly to the milestone
+  /// amount. The other party must accept before anything settles on-chain.
+  Future<void> propose(
     String id, {
     required String outcome,
     String? resolution,
@@ -77,7 +78,7 @@ class DisputesRepository {
     String? companyAmount,
   }) async {
     await _api.post(
-      '/disputes/$id/resolve',
+      '/disputes/$id/propose',
       body: {
         'outcome': outcome,
         if (resolution != null && resolution.isNotEmpty)
@@ -88,5 +89,11 @@ class DisputesRepository {
           'companyAmount': companyAmount,
       },
     );
+  }
+
+  /// POST /disputes/:id/accept: accepts the standing proposal and executes the
+  /// split on-chain. Only the party that did NOT make the proposal can accept.
+  Future<void> accept(String id) async {
+    await _api.post('/disputes/$id/accept');
   }
 }

@@ -18,6 +18,7 @@ import type { AuthUser } from '../../common/types/auth';
 import { sumAmounts } from '../../common/decimal.util';
 import {
   ESCROW_CHAIN_ADAPTER,
+  type ChainDistribution,
   type EscrowChainAdapter,
 } from './chain/escrow-chain.adapter';
 
@@ -84,13 +85,14 @@ export class EscrowService {
           amount: m.amount.toNumber(),
           receiver: freelancerAddress,
         })),
-      // Non-custodial roles: the company approves+releases, the freelancer
-      // delivers. disputeResolver is omitted so the platform executes the
-      // agreed dispute split (it can only pay the two parties, never skim).
+      // Non-custodial roles: the company approves, the freelancer delivers.
+      // releaseSigner + disputeResolver are omitted so the PLATFORM executes
+      // them (release to the freelancer's locked receiver, or the agreed dispute
+      // split). It can only pay the fixed party addresses, never redirect/skim,
+      // so the company signs ONE approval per milestone instead of approve+release.
       roles: {
         approver: companyAddress,
         serviceProvider: freelancerAddress,
-        releaseSigner: companyAddress,
       },
     });
     return this.prisma.escrow.create({
@@ -171,30 +173,34 @@ export class EscrowService {
     return { approveXdr };
   }
 
-  /** Build the unsigned RELEASE XDR (call after the approve is on-chain). */
-  async prepareMilestoneReleaseXdr(
+  /**
+   * Release an approved milestone's funds, signed by the PLATFORM (the release
+   * signer). The company only signs the approval; the platform then executes the
+   * payout to the milestone's locked receiver (the freelancer), so it can never
+   * redirect the funds. TW only builds the release once the milestone is
+   * approved on-chain, so a caller cannot release without a real approval. In
+   * simulated mode the adapter returns a fake hash.
+   */
+  async releaseMilestoneAsPlatform(
     escrow: Escrow,
     milestone: Milestone,
-    companyAddress: string,
-  ): Promise<{ releaseXdr: string | null }> {
+  ): Promise<string> {
     if (!escrow.trustlessWorkId) {
       throw new NotFoundException('Escrow has no on-chain contract id');
     }
-    const releaseXdr = await this.chain.buildReleaseXdr(
+    const { txHash } = await this.chain.releaseMilestone(
       escrow.trustlessWorkId,
       milestone.position,
-      companyAddress,
     );
-    return { releaseXdr };
+    return this.recordMilestoneRelease(escrow, milestone, txHash);
   }
 
-  /** Record the milestone release after the company signed approve + release. */
-  async confirmMilestoneRelease(
+  /** Persist a milestone release: cumulative amount, transaction and status. */
+  private async recordMilestoneRelease(
     escrow: Escrow,
     milestone: Milestone,
-    txHash?: string,
+    hash: string,
   ): Promise<string> {
-    const hash = this.settleHash(txHash);
     // Atomic increment so two concurrent releases cannot clobber each other's
     // cumulative total (read-modify-write would lose one update). Decide the
     // final status from the returned fresh row, not the stale in-memory value.
@@ -274,18 +280,20 @@ export class EscrowService {
     if (!escrow.trustlessWorkId) {
       throw new NotFoundException('Escrow has no on-chain contract id');
     }
-    const distributions: [string, string][] = [];
+    // TW wants { address, amount } objects with a numeric amount and rejects
+    // any amount <= 0, so only the non-zero shares are sent.
+    const distributions: ChainDistribution[] = [];
     if (distribution.freelancerAmount.gt(0)) {
-      distributions.push([
-        distribution.freelancerAddress,
-        distribution.freelancerAmount.toString(),
-      ]);
+      distributions.push({
+        address: distribution.freelancerAddress,
+        amount: distribution.freelancerAmount.toNumber(),
+      });
     }
     if (distribution.companyAmount.gt(0)) {
-      distributions.push([
-        distribution.companyAddress,
-        distribution.companyAmount.toString(),
-      ]);
+      distributions.push({
+        address: distribution.companyAddress,
+        amount: distribution.companyAmount.toNumber(),
+      });
     }
 
     const result = await this.chain.resolveDispute(

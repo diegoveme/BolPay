@@ -19,13 +19,17 @@ const freelancer: AuthUser = {
   email: 'f@x.com',
   role: 'freelancer',
 };
-const admin: AuthUser = {
-  id: 'admin-user',
-  email: 'a@x.com',
-  role: 'administrator',
-};
-
 const G = (c: string) => c + 'B'.repeat(55);
+
+/** A standing proposal made by the company, awaiting the freelancer's accept. */
+const companyProposal = {
+  status: 'under_review',
+  proposedById: 'company-user',
+  proposalOutcome: 'release_to_freelancer',
+  proposalFreelancerAmount: new Prisma.Decimal('500'),
+  proposalCompanyAmount: new Prisma.Decimal('0'),
+  proposalNote: null,
+};
 
 function disputeFixture(overrides: Record<string, unknown> = {}) {
   return {
@@ -108,51 +112,69 @@ describe('DisputesService', () => {
     service = moduleRef.get(DisputesService);
   });
 
-  it('the opener cannot resolve their own dispute (mutual resolution)', async () => {
+  it('propose: the split must sum the milestone amount', async () => {
     prisma.dispute.findUnique.mockResolvedValue(disputeFixture());
     await expect(
-      service.resolve('dp1', company, { outcome: 'release_to_freelancer' }),
-    ).rejects.toThrow(ForbiddenException);
-  });
-
-  it('split amounts must sum the milestone amount', async () => {
-    prisma.dispute.findUnique.mockResolvedValue(disputeFixture());
-    await expect(
-      service.resolve('dp1', freelancer, {
+      service.propose('dp1', company, {
         outcome: 'split',
         freelancerAmount: '100',
         companyAmount: '100',
       }),
     ).rejects.toThrow(BadRequestException);
+    expect(prisma.dispute.update).not.toHaveBeenCalled();
+  });
+
+  it('propose: stores the standing proposal and notifies the other party', async () => {
+    prisma.dispute.findUnique.mockResolvedValue(disputeFixture());
+    prisma.dispute.update.mockResolvedValue(disputeFixture(companyProposal));
+
+    await service.propose('dp1', company, { outcome: 'release_to_freelancer' });
+
+    expect(prisma.dispute.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          proposalOutcome: 'release_to_freelancer',
+          proposedById: 'company-user',
+        }),
+      }),
+    );
+    expect(notifications.notify).toHaveBeenCalledWith(
+      'freelancer-user',
+      'dispute_opened',
+      expect.any(String),
+      expect.any(Object),
+    );
     expect(escrow.resolveMilestoneDispute).not.toHaveBeenCalled();
   });
 
-  it('counterpart accepting release_to_freelancer executes the full distribution', async () => {
+  it('accept: rejects when there is no standing proposal', async () => {
     prisma.dispute.findUnique.mockResolvedValue(disputeFixture());
+    await expect(service.accept('dp1', freelancer)).rejects.toThrow(
+      BadRequestException,
+    );
+    expect(escrow.resolveMilestoneDispute).not.toHaveBeenCalled();
+  });
 
-    await service.resolve('dp1', freelancer, {
-      outcome: 'release_to_freelancer',
-    });
+  it('accept: the proposer cannot accept their own proposal (mutual)', async () => {
+    prisma.dispute.findUnique.mockResolvedValue(disputeFixture(companyProposal));
+    await expect(service.accept('dp1', company)).rejects.toThrow(
+      ForbiddenException,
+    );
+    expect(escrow.resolveMilestoneDispute).not.toHaveBeenCalled();
+  });
+
+  it('accept: the other party executes the agreed distribution on-chain', async () => {
+    prisma.dispute.findUnique.mockResolvedValue(disputeFixture(companyProposal));
+
+    await service.accept('dp1', freelancer);
 
     expect(escrow.resolveMilestoneDispute).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'e1' }),
       expect.objectContaining({ id: 'm1' }),
       expect.objectContaining({
         freelancerAmount: new Prisma.Decimal('500'),
-        companyAmount: new Prisma.Decimal(0),
+        companyAmount: new Prisma.Decimal('0'),
       }),
     );
-  });
-
-  it('escalated disputes are admin-only', async () => {
-    prisma.dispute.findUnique.mockResolvedValue(
-      disputeFixture({ status: 'escalated' }),
-    );
-    await expect(
-      service.resolve('dp1', freelancer, { outcome: 'refund_to_company' }),
-    ).rejects.toThrow(ForbiddenException);
-
-    await service.resolve('dp1', admin, { outcome: 'refund_to_company' });
-    expect(escrow.resolveMilestoneDispute).toHaveBeenCalledTimes(1);
   });
 });

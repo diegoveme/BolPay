@@ -75,6 +75,8 @@ enum EscrowStatus {
 enum DisputeStatus {
   open
   under_review
+  // deprecated: disputes are resolved mutually by the parties, with no admin
+  // escalation. Value retained for migration safety; no code sets it.
   escalated
   resolved
   closed
@@ -148,6 +150,7 @@ model User {
   notifications     Notification[]
   activityLogs      ActivityLog[]
   disputesOpened    Dispute[]          @relation("DisputeOpenedBy")
+  disputesProposed  Dispute[]          @relation("DisputeProposedBy")
   disputesResolved  Dispute[]          @relation("DisputeResolvedBy")
   evidenceSubmitted DisputeEvidence[]  @relation("EvidenceSubmittedBy")
   deliverables      Deliverable[]      @relation("DeliverableSubmittedBy")
@@ -357,6 +360,16 @@ model Dispute {
   openedById       String          @map("opened_by") @db.Uuid
   reason           String
   status           DisputeStatus   @default(open)
+  // Standing resolution proposal: one party proposes a split, the OTHER party
+  // must accept it (or counter-propose) before it executes on-chain. Cleared
+  // meaning is "no proposal yet" when proposedById is null.
+  proposalOutcome          DisputeOutcome? @map("proposal_outcome")
+  proposalFreelancerAmount Decimal?        @map("proposal_freelancer_amount") @db.Decimal(20, 7)
+  proposalCompanyAmount    Decimal?        @map("proposal_company_amount") @db.Decimal(20, 7)
+  proposalNote             String?         @map("proposal_note")
+  proposedById             String?         @map("proposed_by") @db.Uuid
+  proposedAt               DateTime?       @map("proposed_at")
+  // Final resolution (copied from the accepted proposal).
   outcome          DisputeOutcome?
   freelancerAmount Decimal?        @map("freelancer_amount") @db.Decimal(20, 7)
   companyAmount    Decimal?        @map("company_amount") @db.Decimal(20, 7)
@@ -367,6 +380,7 @@ model Dispute {
 
   milestone  Milestone         @relation(fields: [milestoneId], references: [id], onDelete: Cascade)
   openedBy   User              @relation("DisputeOpenedBy", fields: [openedById], references: [id])
+  proposedBy User?             @relation("DisputeProposedBy", fields: [proposedById], references: [id])
   resolvedBy User?             @relation("DisputeResolvedBy", fields: [resolvedById], references: [id])
   evidence   DisputeEvidence[]
 

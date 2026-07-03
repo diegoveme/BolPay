@@ -71,6 +71,7 @@ export interface DisputeDetail extends Dispute {
   };
   evidence: (DisputeEvidence & { submittedBy: UserSummary })[];
   openedBy: UserSummary;
+  proposedBy?: UserSummary | null;
   resolvedBy?: UserSummary | null;
 }
 

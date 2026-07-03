@@ -13,8 +13,12 @@ import {
   TextareaField,
 } from '@/components/ui';
 
-/** Modal where the counterparty accepts the agreed fund split and executes it on the escrow. */
-export function ResolveModal({
+/**
+ * Modal where a party proposes (or counter-proposes) how the disputed funds are
+ * split. The other party must accept the proposal before anything settles on the
+ * escrow, so proposing never moves money by itself.
+ */
+export function ProposeModal({
   dispute,
   onClose,
   onDone,
@@ -24,16 +28,22 @@ export function ResolveModal({
   onDone: () => void;
 }) {
   const { pushToast } = useNotificationsUi();
+  // Prefill from the standing proposal so counter-proposing tweaks it instead of
+  // starting from scratch.
   const [outcome, setOutcome] = useState<DisputeOutcome>(
-    DisputeOutcome.ReleaseToFreelancer,
+    dispute.proposalOutcome ?? DisputeOutcome.ReleaseToFreelancer,
   );
-  const [freelancerAmount, setFreelancerAmount] = useState('');
-  const [companyAmount, setCompanyAmount] = useState('');
-  const [resolution, setResolution] = useState('');
+  const [freelancerAmount, setFreelancerAmount] = useState(
+    dispute.proposalFreelancerAmount ?? '',
+  );
+  const [companyAmount, setCompanyAmount] = useState(
+    dispute.proposalCompanyAmount ?? '',
+  );
+  const [resolution, setResolution] = useState(dispute.proposalNote ?? '');
 
-  const resolve = useMutation({
+  const propose = useMutation({
     mutationFn: async () =>
-      api.post(`/disputes/${dispute.id}/resolve`, {
+      api.post(`/disputes/${dispute.id}/propose`, {
         outcome,
         resolution: resolution.trim() || undefined,
         ...(outcome === DisputeOutcome.Split
@@ -48,11 +58,15 @@ export function ResolveModal({
   const splitOk =
     outcome !== DisputeOutcome.Split ||
     Number(freelancerAmount) + Number(companyAmount) === milestoneAmount;
+  const isCounter = Boolean(dispute.proposedById);
 
   return (
-    <Modal title="Resolve dispute" onClose={onClose}>
+    <Modal
+      title={isCounter ? 'Counter-propose' : 'Propose a resolution'}
+      onClose={onClose}
+    >
       <p className="muted" style={{ fontSize: 13.5, marginBottom: 12 }}>
-        The split is executed on-chain on the escrow (
+        The other party has to accept this before it runs on the escrow (
         {formatUSDC(dispute.milestone.amount)}).
       </p>
       <SelectField
@@ -64,7 +78,10 @@ export function ResolveModal({
             value: DisputeOutcome.ReleaseToFreelancer,
             label: 'Release everything to the freelancer',
           },
-          { value: DisputeOutcome.RefundToCompany, label: 'Refund everything to the company' },
+          {
+            value: DisputeOutcome.RefundToCompany,
+            label: 'Refund everything to the company',
+          },
           { value: DisputeOutcome.Split, label: 'Split the amount' },
         ]}
       />
@@ -86,7 +103,9 @@ export function ResolveModal({
             value={companyAmount}
             onChange={(e) => setCompanyAmount(e.target.value)}
             error={
-              splitOk ? undefined : `The total must be ${formatUSDC(milestoneAmount)}`
+              splitOk
+                ? undefined
+                : `The total must be ${formatUSDC(milestoneAmount)}`
             }
           />
         </div>
@@ -96,8 +115,12 @@ export function ResolveModal({
         value={resolution}
         onChange={setResolution}
       />
-      <Button loading={resolve.isPending} disabled={!splitOk} onClick={() => resolve.mutate()}>
-        Execute resolution
+      <Button
+        loading={propose.isPending}
+        disabled={!splitOk}
+        onClick={() => propose.mutate()}
+      >
+        {isCounter ? 'Send counter-proposal' : 'Send proposal'}
       </Button>
     </Modal>
   );

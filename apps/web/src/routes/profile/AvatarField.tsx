@@ -134,9 +134,21 @@ export function AvatarField({
           <p className="muted" style={{ fontSize: 12, marginTop: 6 }}>
             Paste a link or upload an image (PNG/JPG/WEBP/GIF, max 2MB).
           </p>
-          <div style={{ display: 'flex', gap: 12, marginTop: 20 }}>
+          {value && (
+            <Button
+              type="button"
+              variant="danger"
+              style={{ width: '100%', marginTop: 16 }}
+              onClick={() => onChange('')}
+            >
+              Remove image
+            </Button>
+          )}
+          {/* "Continue" only applies the choice to the form; you still Save the
+              profile below to store it. */}
+          <div style={{ display: 'flex', gap: 12, marginTop: 12 }}>
             <Button style={{ flex: 1 }} onClick={() => setEditing(false)}>
-              Save
+              Continue
             </Button>
             <Button
               variant="secondary"

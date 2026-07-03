@@ -143,6 +143,16 @@ export interface Dispute {
   openedById: string;
   reason: string;
   status: DisputeStatus;
+  // Standing resolution proposal: one party proposes a split, the OTHER accepts
+  // it (or counter-proposes) before it settles on-chain. Null proposedById means
+  // no proposal is on the table yet.
+  proposalOutcome?: DisputeOutcome | null;
+  proposalFreelancerAmount?: DecimalString | null;
+  proposalCompanyAmount?: DecimalString | null;
+  proposalNote?: string | null;
+  proposedById?: string | null;
+  proposedAt?: ISODateString | null;
+  // Final resolution (copied from the accepted proposal).
   outcome?: DisputeOutcome | null;
   /** Amount released to the freelancer when resolved (split supported). */
   freelancerAmount?: DecimalString | null;

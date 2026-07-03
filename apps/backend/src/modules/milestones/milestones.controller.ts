@@ -14,7 +14,6 @@ import {
   ReviewDeliverableDto,
   SubmitDeliverableDto,
 } from './dto/submit-deliverable.dto';
-import { ConfirmTxDto } from '../contracts/dto/confirm-tx.dto';
 import { MilestonesService } from './milestones.service';
 
 @ApiTags('milestones')
@@ -67,26 +66,18 @@ export class MilestonesController {
     return this.milestonesService.prepareApprove(id, user);
   }
 
-  /** Step 2: company gets the release XDR (after signing the approve). */
-  @Post(':id/release/prepare')
-  @Roles('company')
-  prepareRelease(
-    @Param('id', ParseUUIDPipe) id: string,
-    @CurrentUser() user: AuthUser,
-  ) {
-    return this.milestonesService.prepareRelease(id, user);
-  }
-
-  /** Step 3: company confirms the release after signing both. */
-  /** Step 3: company confirms the on-chain release and records the payout. */
+  /**
+   * Step 2: after signing the approve, the company confirms it. The PLATFORM
+   * then executes the release to the freelancer, so no second signature is
+   * needed and no txHash is sent from the client.
+   */
   @Post(':id/approve/confirm')
   @Roles('company')
   confirmApprove(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: AuthUser,
-    @Body() dto: ConfirmTxDto,
   ) {
-    return this.milestonesService.confirmApprove(id, user, dto.txHash);
+    return this.milestonesService.confirmApprove(id, user);
   }
 
   /** Company requests changes, sending the milestone back to the freelancer. */

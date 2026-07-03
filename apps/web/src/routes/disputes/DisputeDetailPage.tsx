@@ -15,17 +15,18 @@ import {
   Badge,
   Button,
   Card,
+  ConfirmModal,
   ErrorState,
   Field,
   PageHeader,
   Spinner,
   TextareaField,
 } from '@/components/ui';
-import { ResolveModal } from './ResolveModal';
+import { ProposeModal } from './ProposeModal';
 
-const OPEN_STATES = ['open', 'under_review', 'escalated'];
+const OPEN_STATES = ['open', 'under_review'];
 
-/** Dispute detail: reason, evidence thread, resolution and mutual settlement flow. */
+/** Dispute detail: reason, evidence thread and the mutual propose/accept flow. */
 export function DisputeDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { user } = useAuth();
@@ -34,7 +35,8 @@ export function DisputeDetailPage() {
 
   const [fileUrl, setFileUrl] = useState('');
   const [comment, setComment] = useState('');
-  const [showResolve, setShowResolve] = useState(false);
+  const [showPropose, setShowPropose] = useState(false);
+  const [confirmAccept, setConfirmAccept] = useState(false);
 
   const { data: dispute, isLoading, error } = useQuery({
     queryKey: ['disputes', id],
@@ -60,15 +62,27 @@ export function DisputeDetailPage() {
     onError: (err) => pushToast(apiErrorMessage(err)),
   });
 
+  const accept = useMutation({
+    mutationFn: async () => api.post(`/disputes/${id}/accept`),
+    onSuccess: () => {
+      setConfirmAccept(false);
+      invalidate();
+    },
+    onError: (err) => pushToast(apiErrorMessage(err)),
+  });
+
   if (isLoading) return <Spinner label="Loading dispute…" />;
   if (error || !dispute) return <ErrorState message={apiErrorMessage(error)} />;
 
   const contract = dispute.milestone.contract;
   const isOpen = OPEN_STATES.includes(dispute.status);
-  const isOpener = dispute.openedById === user?.id;
-  // Disputes are resolved mutually by the parties: the counterparty accepts the
-  // agreed split and the company executes it. No platform/admin involvement.
-  const canResolve = isOpen && !isOpener;
+  // A resolution proposal is on the table until the dispute is settled. Either
+  // party may propose; only the party who did NOT make the current proposal can
+  // accept it, which is what keeps the resolution mutual.
+  const hasProposal = Boolean(dispute.proposedById);
+  const isProposer = dispute.proposedById === user?.id;
+  const toFreelancer = formatUSDC(dispute.proposalFreelancerAmount ?? '0');
+  const toCompany = formatUSDC(dispute.proposalCompanyAmount ?? '0');
 
   return (
     <>
@@ -109,7 +123,7 @@ export function DisputeDetailPage() {
               <p>{formatUSDC(dispute.companyAmount ?? '0')}</p>
             </div>
             <div>
-              <p className="muted" style={{ fontSize: 13 }}>Resolved by</p>
+              <p className="muted" style={{ fontSize: 13 }}>Accepted by</p>
               <p>{dispute.resolvedBy?.email ?? '·'}</p>
             </div>
           </div>
@@ -167,26 +181,83 @@ export function DisputeDetailPage() {
 
       {isOpen && (
         <Card title="Resolution">
-          <p className="muted" style={{ fontSize: 13.5, marginBottom: 12 }}>
-            {canResolve
-              ? 'You settle this between yourselves: review the evidence and, if you agree, accept how the funds are split. The company signs the resolution with its wallet.'
-              : 'Once the other party accepts a resolution, it will be executed on the escrow. You can keep attaching evidence and negotiating.'}
-          </p>
-          {canResolve && (
-            <Button onClick={() => setShowResolve(true)}>Resolve dispute</Button>
+          {hasProposal ? (
+            <>
+              <p className="muted" style={{ fontSize: 13.5, marginBottom: 12 }}>
+                {isProposer
+                  ? 'You proposed this split. It runs on the escrow once the other party accepts. You can change it below.'
+                  : `${dispute.proposedBy?.email ?? 'The other party'} proposed this split. Accept it to execute on the escrow, or counter with your own.`}
+              </p>
+              <div className="row" style={{ gap: 24 }}>
+                <div>
+                  <p className="muted" style={{ fontSize: 13 }}>To the freelancer</p>
+                  <p>{toFreelancer}</p>
+                </div>
+                <div>
+                  <p className="muted" style={{ fontSize: 13 }}>To the company</p>
+                  <p>{toCompany}</p>
+                </div>
+              </div>
+              {dispute.proposalNote && (
+                <p style={{ marginTop: 12, whiteSpace: 'pre-wrap' }}>
+                  {dispute.proposalNote}
+                </p>
+              )}
+              <hr className="divider" />
+              <div className="row" style={{ gap: 12 }}>
+                {!isProposer && (
+                  <Button onClick={() => setConfirmAccept(true)}>
+                    Accept and execute
+                  </Button>
+                )}
+                <Button variant="secondary" onClick={() => setShowPropose(true)}>
+                  {isProposer ? 'Change proposal' : 'Counter-propose'}
+                </Button>
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="muted" style={{ fontSize: 13.5, marginBottom: 12 }}>
+                You settle this between yourselves: propose how the{' '}
+                {formatUSDC(dispute.milestone.amount)} in escrow is split. It only
+                executes once the other party accepts.
+              </p>
+              <Button onClick={() => setShowPropose(true)}>
+                Propose a resolution
+              </Button>
+            </>
           )}
         </Card>
       )}
 
-      {showResolve && (
-        <ResolveModal
+      {showPropose && (
+        <ProposeModal
           dispute={dispute}
-          onClose={() => setShowResolve(false)}
+          onClose={() => setShowPropose(false)}
           onDone={() => {
-            setShowResolve(false);
+            setShowPropose(false);
             invalidate();
           }}
         />
+      )}
+
+      {confirmAccept && (
+        <ConfirmModal
+          title="Accept resolution"
+          confirmLabel="Execute resolution"
+          danger
+          loading={accept.isPending}
+          onClose={() => setConfirmAccept(false)}
+          onConfirm={() => accept.mutate()}
+        >
+          <p>
+            Accepting executes the agreed split on the escrow: {toFreelancer} to
+            the freelancer and {toCompany} to the company.
+          </p>
+          <div className="modal__danger-note">
+            This runs on-chain and cannot be undone.
+          </div>
+        </ConfirmModal>
       )}
     </>
   );

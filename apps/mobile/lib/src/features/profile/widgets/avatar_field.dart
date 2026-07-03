@@ -62,7 +62,8 @@ class AvatarField extends StatelessWidget {
   }
 }
 
-/// Modal editor: big preview + URL field; returns the new URL on Save,
+/// Modal editor: big preview + URL field (and a Remove action when an image
+/// is set). Returns the new URL on Continue (empty string when removed), or
 /// null on Cancel (web parity: cancel reverts).
 class _AvatarDialog extends StatefulWidget {
   const _AvatarDialog({
@@ -129,6 +130,18 @@ class _AvatarDialogState extends State<_AvatarDialog> {
               'BolPay web app.',
               style: TextStyle(fontSize: 12, color: colors.textMuted),
             ),
+            if (_controller.text.trim().isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  onPressed: _controller.clear,
+                  style: TextButton.styleFrom(foregroundColor: colors.danger),
+                  icon: const Icon(Icons.delete_outline, size: 18),
+                  label: const Text('Remove image'),
+                ),
+              ),
+            ],
           ],
         ),
       ),
@@ -137,9 +150,11 @@ class _AvatarDialogState extends State<_AvatarDialog> {
           onPressed: () => Navigator.of(context).pop(),
           child: const Text('Cancel'),
         ),
+        // "Continue" only applies the choice to the form; the profile Save
+        // button below persists it.
         FilledButton(
           onPressed: () => Navigator.of(context).pop(_controller.text.trim()),
-          child: const Text('Save'),
+          child: const Text('Continue'),
         ),
       ],
     );

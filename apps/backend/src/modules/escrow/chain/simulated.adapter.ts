@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { randomBytes } from 'node:crypto';
 import type {
+  ChainDistribution,
   ChainTxResult,
   DeployEscrowParams,
   DeployResult,
@@ -34,10 +35,6 @@ export class SimulatedChainAdapter implements EscrowChainAdapter {
   }
 
   buildApproveXdr(): Promise<string | null> {
-    return Promise.resolve(null);
-  }
-
-  buildReleaseXdr(): Promise<string | null> {
     return Promise.resolve(null);
   }
 
@@ -78,7 +75,7 @@ export class SimulatedChainAdapter implements EscrowChainAdapter {
   resolveDispute(
     contractId: string,
     milestoneIndex: number,
-    distributions: [string, string][],
+    distributions: ChainDistribution[],
   ): Promise<ChainTxResult> {
     this.logger.log(
       `[simulated] resolve milestone ${milestoneIndex} on ${contractId}: ${JSON.stringify(distributions)}`,

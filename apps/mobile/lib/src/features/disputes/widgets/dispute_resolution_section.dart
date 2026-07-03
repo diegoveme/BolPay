@@ -32,7 +32,7 @@ class DisputeResolutionCard extends StatelessWidget {
             mono: true,
           ),
           DetailRow(
-            label: 'Resolved by',
+            label: 'Accepted by',
             value: dispute.resolvedByEmail ?? emptyPlaceholder,
           ),
           if (dispute.resolution != null && dispute.resolution!.isNotEmpty) ...[
@@ -48,45 +48,99 @@ class DisputeResolutionCard extends StatelessWidget {
   }
 }
 
-/// Resolution flow shown while a dispute is open: explains who can settle
-/// it and, when the viewer is allowed, the action to resolve it.
-class DisputeResolveCard extends StatelessWidget {
-  const DisputeResolveCard({
+/// Mutual resolution flow shown while a dispute is open. With no standing
+/// proposal, either party can propose a split. Once a proposal exists it is
+/// shown here; the party that did NOT make it can accept (executing it on the
+/// escrow) or counter-propose, and the proposer can change it.
+class DisputeNegotiationCard extends StatelessWidget {
+  const DisputeNegotiationCard({
     super.key,
-    required this.canResolve,
+    required this.dispute,
+    required this.isProposer,
     required this.busy,
-    required this.onResolve,
+    required this.onPropose,
+    required this.onAccept,
   });
 
-  final bool canResolve;
+  final Dispute dispute;
+  final bool isProposer;
   final bool busy;
-  final VoidCallback onResolve;
+
+  /// Opens the propose sheet (a fresh proposal, a counter, or a change).
+  final VoidCallback onPropose;
+
+  /// Confirms and executes the standing proposal on-chain.
+  final VoidCallback onAccept;
 
   @override
   Widget build(BuildContext context) {
     final colors = AppColors.of(context);
+    if (!dispute.hasProposal) {
+      return AppCard(
+        title: 'Resolution',
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'You settle this between yourselves: propose how the '
+              '${formatUsdc(dispute.milestone?.amount)} in escrow is split. '
+              'It only executes once the other party accepts.',
+              style: TextStyle(fontSize: 13.5, color: colors.textMuted),
+            ),
+            const SizedBox(height: 12),
+            FilledButton(
+              onPressed: busy ? null : onPropose,
+              child: const Text('Propose a resolution'),
+            ),
+          ],
+        ),
+      );
+    }
     return AppCard(
       title: 'Resolution',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            canResolve
-                ? 'You settle this between yourselves: review the evidence '
-                      'and, if you agree, accept how the funds are split. '
-                      'The company signs the resolution with its wallet.'
-                : 'Once the other party accepts a resolution, it will be '
-                      'executed on the escrow. You can keep attaching '
-                      'evidence and negotiating.',
+            isProposer
+                ? 'You proposed this split. It runs on the escrow once the '
+                      'other party accepts. You can change it below.'
+                : '${dispute.proposedByEmail ?? 'The other party'} proposed '
+                      'this split. Accept it to execute on the escrow, or '
+                      'counter with your own.',
             style: TextStyle(fontSize: 13.5, color: colors.textMuted),
           ),
-          if (canResolve) ...[
-            const SizedBox(height: 12),
-            FilledButton(
-              onPressed: busy ? null : onResolve,
-              child: const Text('Resolve dispute'),
+          const SizedBox(height: 12),
+          DetailRow(
+            label: 'To the freelancer',
+            value: formatUsdc(dispute.proposalFreelancerAmount ?? '0'),
+            mono: true,
+          ),
+          DetailRow(
+            label: 'To the company',
+            value: formatUsdc(dispute.proposalCompanyAmount ?? '0'),
+            mono: true,
+          ),
+          if (dispute.proposalNote != null &&
+              dispute.proposalNote!.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Text(
+              dispute.proposalNote!,
+              style: TextStyle(fontSize: 14, height: 1.5, color: colors.text),
             ),
           ],
+          const SizedBox(height: 14),
+          if (!isProposer) ...[
+            FilledButton(
+              onPressed: busy ? null : onAccept,
+              child: const Text('Accept and execute'),
+            ),
+            const SizedBox(height: 8),
+          ],
+          OutlinedButton(
+            onPressed: busy ? null : onPropose,
+            child: Text(isProposer ? 'Change proposal' : 'Counter-propose'),
+          ),
         ],
       ),
     );

@@ -4,10 +4,10 @@ import '../../../core/formatters.dart';
 import '../../../domain/models/dispute.dart';
 import '../../../ui/theme.dart';
 
-/// Resolution chosen in the resolve sheet. For the `split` outcome both
-/// amounts are set and sum exactly to the milestone amount.
-class ResolveInput {
-  const ResolveInput({
+/// Proposed split from the propose sheet. For the `split` outcome both amounts
+/// are set and sum exactly to the milestone amount.
+class ProposeInput {
+  const ProposeInput({
     required this.outcome,
     this.resolution,
     this.freelancerAmount,
@@ -20,19 +20,20 @@ class ResolveInput {
   final String? companyAmount;
 }
 
-/// Shows the resolve-dispute sheet (web `ResolveModal` parity): outcome
-/// selection (release / refund / split with two amounts that must sum to
-/// the milestone amount) plus an agreement note. Returns null when
-/// dismissed; the caller still confirms before executing.
-Future<ResolveInput?> showResolveSheet(
+/// Shows the propose-resolution sheet (web `ProposeModal` parity): outcome
+/// selection (release / refund / split with two amounts that must sum to the
+/// milestone amount) plus an agreement note. Prefilled from the standing
+/// proposal so counter-proposing tweaks it. Returns null when dismissed;
+/// proposing does not move money, so no confirmation is needed.
+Future<ProposeInput?> showProposeSheet(
   BuildContext context, {
   required Dispute dispute,
 }) {
-  return showModalBottomSheet<ResolveInput>(
+  return showModalBottomSheet<ProposeInput>(
     context: context,
     isScrollControlled: true,
     useSafeArea: true,
-    builder: (sheetContext) => _ResolveSheet(dispute: dispute),
+    builder: (sheetContext) => _ProposeSheet(dispute: dispute),
   );
 }
 
@@ -42,20 +43,35 @@ const _outcomeOptions = [
   ('split', 'Split the amount'),
 ];
 
-class _ResolveSheet extends StatefulWidget {
-  const _ResolveSheet({required this.dispute});
+class _ProposeSheet extends StatefulWidget {
+  const _ProposeSheet({required this.dispute});
 
   final Dispute dispute;
 
   @override
-  State<_ResolveSheet> createState() => _ResolveSheetState();
+  State<_ProposeSheet> createState() => _ProposeSheetState();
 }
 
-class _ResolveSheetState extends State<_ResolveSheet> {
-  String _outcome = 'release_to_freelancer';
-  final _freelancerAmount = TextEditingController();
-  final _companyAmount = TextEditingController();
-  final _resolution = TextEditingController();
+class _ProposeSheetState extends State<_ProposeSheet> {
+  late String _outcome;
+  late final TextEditingController _freelancerAmount;
+  late final TextEditingController _companyAmount;
+  late final TextEditingController _resolution;
+
+  @override
+  void initState() {
+    super.initState();
+    // Prefill from the standing proposal (counter-propose) or sensible defaults.
+    final dispute = widget.dispute;
+    _outcome = dispute.proposalOutcome ?? 'release_to_freelancer';
+    _freelancerAmount = TextEditingController(
+      text: dispute.proposalFreelancerAmount ?? '',
+    );
+    _companyAmount = TextEditingController(
+      text: dispute.proposalCompanyAmount ?? '',
+    );
+    _resolution = TextEditingController(text: dispute.proposalNote ?? '');
+  }
 
   @override
   void dispose() {
@@ -89,7 +105,7 @@ class _ResolveSheetState extends State<_ResolveSheet> {
   void _submit() {
     final isSplit = _outcome == 'split';
     Navigator.of(context).pop(
-      ResolveInput(
+      ProposeInput(
         outcome: _outcome,
         resolution: _resolution.text.trim().isEmpty
             ? null
@@ -104,6 +120,7 @@ class _ResolveSheetState extends State<_ResolveSheet> {
   Widget build(BuildContext context) {
     final colors = AppColors.of(context);
     final amountLabel = formatUsdc(widget.dispute.milestone?.amount);
+    final isCounter = widget.dispute.hasProposal;
     return Padding(
       padding: EdgeInsets.only(
         left: 24,
@@ -117,7 +134,7 @@ class _ResolveSheetState extends State<_ResolveSheet> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text(
-              'Resolve dispute',
+              isCounter ? 'Counter-propose' : 'Propose a resolution',
               style: TextStyle(
                 fontSize: 17,
                 fontWeight: FontWeight.w600,
@@ -126,7 +143,8 @@ class _ResolveSheetState extends State<_ResolveSheet> {
             ),
             const SizedBox(height: 12),
             Text(
-              'The split is executed on-chain on the escrow ($amountLabel).',
+              'The other party has to accept this before it runs on the '
+              'escrow ($amountLabel).',
               style: TextStyle(fontSize: 13.5, color: colors.textMuted),
             ),
             const SizedBox(height: 16),
@@ -185,12 +203,9 @@ class _ResolveSheetState extends State<_ResolveSheet> {
             const SizedBox(height: 20),
             FilledButton(
               onPressed: _splitOk ? _submit : null,
-              style: FilledButton.styleFrom(
-                backgroundColor: colors.danger,
-                foregroundColor: Colors.white,
-                disabledBackgroundColor: colors.danger.withValues(alpha: 0.55),
+              child: Text(
+                isCounter ? 'Send counter-proposal' : 'Send proposal',
               ),
-              child: const Text('Execute resolution'),
             ),
           ],
         ),

@@ -139,7 +139,7 @@ module with its own controller, service, and DTOs.
 | `contracts` | Contract lifecycle: draft → acceptance → active → completed. |
 | `milestones` | Milestone state, deliverable submission and review. |
 | `escrow` | Escrow records and the on-chain adapter abstraction. |
-| `disputes` | Dispute lifecycle, evidence, and mutual or escalated resolution. |
+| `disputes` | Dispute lifecycle, evidence, and mutual propose/accept resolution. |
 | `payroll` | Payroll schedules, recipients, funding, and the distribution scheduler. |
 | `notifications` | Real-time user notifications over server-sent events. |
 | `activity-logs` | Append-only audit trail of domain events. |
@@ -172,12 +172,12 @@ sequenceDiagram
     C->>P: Authenticate (publishable key)
     P-->>C: Identity + custodial Stellar wallet
     C->>API: POST /auth/login (email, wallet, provider, role)
-    API->>P: Verify wallet ownership (secret key) — fails closed
+    API->>P: Verify wallet ownership (secret key) - fails closed
     API-->>C: BolPay JWT + user
     Note over API: Send email verification if not verified
 ```
 
-### Identity & wallets — Pollar
+### Identity & wallets - Pollar
 
 Pollar is a wallet-onboarding SDK for Stellar. The client authenticates with a
 **publishable key** (social login or email OTP); Pollar provisions a **custodial
@@ -185,13 +185,13 @@ Stellar wallet** and handles trustlines and sponsored fees. The backend holds a
 **secret key** and verifies at login that the claimed address belongs to the
 presented wallet id.
 
-> **Fails closed** — When the secret key is configured (required in production), a
+> **Fails closed** - When the secret key is configured (required in production), a
 > missing wallet id, an unreachable Pollar server, or an address mismatch all
 > **reject login**. Rebinding an existing account to a new wallet also requires
 > server-side verification, so knowing a victim's email cannot hijack their payout
 > address.
 
-### Sessions — BolPay JWT
+### Sessions - BolPay JWT
 
 After wallet verification, the backend issues a signed JWT carrying the user id,
 email, and role. Roles are resolved on first login: an **invitation token wins** (its
@@ -199,15 +199,15 @@ role must match the email and be unexpired); otherwise the role comes from the
 request. Self-custodial wallets (via Stellar Wallets Kit) prove ownership by signing
 a server challenge instead of presenting a Pollar wallet.
 
-### Email ownership — verification & sign-in codes
+### Email ownership - verification & sign-in codes
 
 Because Pollar exposes no backend-verifiable identity token, BolPay verifies email
 itself. Two mechanisms share the mail layer:
 
-- **Verification link** — on registration, a single-use, expiring token is emailed;
+- **Verification link** - on registration, a single-use, expiring token is emailed;
   confirming it sets `emailVerified`. Sensitive actions (funding escrow, sending
   invitations) are gated behind it.
-- **Sign-in code** — the manual (self-declared wallet) path emails a six-digit code
+- **Sign-in code** - the manual (self-declared wallet) path emails a six-digit code
   that must be confirmed before the session is created. The code is stored as an
   **HMAC keyed by the server secret** (a leaked table cannot recover it), expires in
   ten minutes, allows five attempts, and is single-use.
@@ -219,13 +219,13 @@ See [authentication.md](authentication.md) for the full flow and configuration.
 ## 6. Escrow & settlement
 
 A BolPay escrow is a Trustless Work (Soroban) contract that locks funds until release
-conditions are met. Contract escrows are **multi-release** — each milestone is an
-independently releasable tranche — while payroll escrows fund a scheduled
+conditions are met. Contract escrows are **multi-release** - each milestone is an
+independently releasable tranche - while payroll escrows fund a scheduled
 distribution to many recipients. Both are the same model, distinguished by type.
 
 Settlement is hidden behind an adapter, `EscrowChainAdapter`, selected by the
-`ESCROW_MODE` environment variable. Every mode exposes the same operations —
-`deploy`, `fund`, `release`, `refund`, `distribute` — so application logic is written
+`ESCROW_MODE` environment variable. Every mode exposes the same operations -
+`deploy`, `fund`, `release`, `refund`, `distribute` - so application logic is written
 once.
 
 ```mermaid
@@ -240,7 +240,7 @@ flowchart TD
 | `simulated` (default) | In-memory escrow; the whole product flow works without touching the chain. Used for local development and functional testing. |
 | `trustless_work` | Real multi-release escrows on the Stellar Testnet via the Trustless Work API. Requires an API key and a funded platform signer. |
 
-> **Precision** — Amounts use seven decimal places throughout (`Decimal(20, 7)`),
+> **Precision** - Amounts use seven decimal places throughout (`Decimal(20, 7)`),
 > matching Stellar's native asset precision, to avoid rounding drift between the
 > database and on-chain operations.
 
@@ -293,8 +293,10 @@ their accounts.
 
 Opening a dispute on a milestone pauses its release and keeps the funds locked;
 neither party can release unilaterally. Both sides attach evidence (files and
-comments). Resolution is by mutual agreement, or escalated for platform review when
-no agreement is reached — the agreed outcome is then executed on the escrow.
+comments). Resolution is **fully mutual**: one party proposes a split and the other
+accepts it (or counter-proposes) before it settles. There is no administrator arbiter,
+so the funds stay locked until both sides agree; the platform then executes the agreed
+split on the escrow (it can only pay the two parties' addresses).
 
 | Outcome | Effect on the tranche |
 |---|---|
@@ -363,7 +365,7 @@ erDiagram
 |---|---|
 | **User** | Account root: email, role, auth provider, linked Stellar address / wallet id. At most one company or freelancer profile. |
 | **Wallet** | Stellar address(es) linked to a user; one marked primary. |
-| **Contract** | Company–freelancer agreement with a total, optional deadline, status, and optional escrow reference. |
+| **Contract** | Company-freelancer agreement with a total, optional deadline, status, and optional escrow reference. |
 | **Milestone** | Ordered, independently releasable unit of work; its position matches the on-chain milestone index. |
 | **Deliverable** | Versioned submission (file and/or link) attached to a milestone, with review status. |
 | **Escrow** | Reference to a Trustless Work escrow: type, status, asset, funded / released amounts. |
@@ -392,7 +394,7 @@ database, API, and UI in sync. See [data-model.md](data-model.md) for the full m
 
 ## 11. Notifications & audit
 
-The backend emits per-user **notifications** as domain events occur — a contract
+The backend emits per-user **notifications** as domain events occur - a contract
 sent, a milestone approved, a dispute opened. The web client subscribes over
 **server-sent events** for live updates; the mobile client falls back to a short
 **polling** interval, since long-lived SSE connections are awkward on mobile. Marking
@@ -409,8 +411,8 @@ mutated or deleted.
 The **web** client (React 19 + Vite) and the **mobile** client (Flutter) target the
 same backend and aim for feature parity: authentication, contracts and milestones,
 deliverables, disputes, payroll, escrow status, and live notifications. Both render
-the **"Andean Precision"** design system — a restrained palette, hairline 1px borders
-instead of shadows, and consistent radii — so the two surfaces read as one product.
+the **"Andean Precision"** design system - a restrained palette, hairline 1px borders
+instead of shadows, and consistent radii - so the two surfaces read as one product.
 
 ### Wallet signing on mobile
 
@@ -419,7 +421,7 @@ source:
 
 | Context | How the action is signed |
 |---|---|
-| `simulated` mode | Nothing to sign — the confirm proceeds without a transaction hash. |
+| `simulated` mode | Nothing to sign - the confirm proceeds without a transaction hash. |
 | Custodial wallet · `trustless_work` | The wallet service signs *and* broadcasts the transaction on-device; the resulting hash is passed to the confirm. |
 | Self-declared wallet | The action is completed on the web app, where the user's own wallet can sign. |
 

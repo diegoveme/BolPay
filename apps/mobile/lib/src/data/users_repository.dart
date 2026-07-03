@@ -95,7 +95,9 @@ class UsersRepository {
                 'website': ?website,
                 'industry': ?industry,
                 'values': ?values,
-                'avatarUrl': ?avatarUrl,
+                // Always sent (even null) so clearing it removes the image;
+                // a `?avatarUrl` null-aware entry would omit it and keep the old.
+                'avatarUrl': avatarUrl,
               },
             )
             as Map<String, dynamic>;
@@ -126,7 +128,9 @@ class UsersRepository {
                 'website': ?website,
                 'linkedin': ?linkedin,
                 'github': ?github,
-                'avatarUrl': ?avatarUrl,
+                // Always sent (even null) so clearing it removes the image;
+                // a `?avatarUrl` null-aware entry would omit it and keep the old.
+                'avatarUrl': avatarUrl,
               },
             )
             as Map<String, dynamic>;

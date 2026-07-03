@@ -45,12 +45,16 @@ export function InvitationsCard() {
     onError: (err) => pushToast(apiErrorMessage(err)),
   });
 
+  // Companies invite freelancers or fixed employees; only administrators can
+  // invite other companies or administrators (mirrors the mobile app + backend).
   const roleOptions = [
     { value: UserRole.FixedEmployee, label: 'Fixed employee' },
     { value: UserRole.Freelancer, label: 'Freelancer' },
-    { value: UserRole.Company, label: 'Company' },
     ...(user?.role === 'administrator'
-      ? [{ value: UserRole.Administrator, label: 'Administrator' }]
+      ? [
+          { value: UserRole.Company, label: 'Company' },
+          { value: UserRole.Administrator, label: 'Administrator' },
+        ]
       : []),
   ];
 
