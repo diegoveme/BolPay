@@ -56,6 +56,11 @@ sequenceDiagram
 Milestone receivers are the freelancers' Pollar wallets, so released funds land
 directly in their accounts.
 
+The company signs a **single transaction** to approve each milestone; the platform
+then executes the release to the freelancer's locked receiver address. It can only
+pay that fixed address (never redirect or skim), so approval and payout together take
+just one signature from the company.
+
 ## 4. Dispute Settlement
 
 Opening a dispute on a milestone pauses its release and keeps the funds locked.
@@ -65,8 +70,11 @@ Neither party can release unilaterally. Resolution can be:
 - **`refund_to_company`** - the tranche is refunded to the company.
 - **`split`** - the tranche is divided between both parties by agreed amounts.
 
-Disputes resolve by mutual agreement, or are escalated for platform review when no
-agreement is reached. The agreed outcome is then executed on the escrow.
+Resolution is **fully mutual**: one party proposes a split (one of the outcomes above),
+and the other party must **accept** it, or **counter-propose** their own, before
+anything settles. There is no administrator arbiter, so the funds stay locked until
+both sides agree. The agreed split is then executed on the escrow by the platform,
+which can only pay the two parties' addresses (never redirect or skim).
 
 ## 5. Payroll Distribution
 

@@ -27,7 +27,7 @@ running.
 | `PATCH` | `/users/me/freelancer-profile` | Freelancer | Update the freelancer profile. |
 | `GET` | `/users/freelancers` | Company | List freelancers in the company directory. |
 | `GET` | `/users/employees` | Company | List fixed employees. |
-| `POST` | `/users/invitations` | Company | Create an email invitation (sent via Resend). |
+| `POST` | `/users/invitations` | Company | Create an email invitation (freelancer / fixed employee; companies and administrators are admin-only). |
 | `GET` | `/users/invitations` | Company | List sent invitations. |
 | `DELETE` | `/users/invitations/:id` | Company | Revoke an invitation. |
 | `GET` | `/users/:id` | Authenticated | Get a user by id. |
@@ -69,8 +69,8 @@ running.
 | `GET` | `/disputes` | Authenticated | List disputes visible to the caller. |
 | `GET` | `/disputes/:id` | Authenticated | Get a dispute with evidence. |
 | `POST` | `/disputes/:id/evidence` | Party | Add evidence (file / comment). |
-| `POST` | `/disputes/:id/escalate` | Party | Escalate the dispute for platform review. |
-| `POST` | `/disputes/:id/resolve` | Party | Resolve with an agreed outcome. |
+| `POST` | `/disputes/:id/propose` | Party | Propose (or counter-propose) how the funds are split. |
+| `POST` | `/disputes/:id/accept` | Party | Accept the standing proposal and settle it on the escrow. |
 
 ## Payrolls
 

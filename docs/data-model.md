@@ -70,7 +70,7 @@ A single `Escrow` model backs both contracts and payroll, distinguished by
 
 | Entity | Description |
 |---|---|
-| **Dispute** | Raised against a milestone; pauses release and locks funds. Tracks status, outcome, split amounts, and resolver. |
+| **Dispute** | Raised against a milestone; pauses release and locks funds. Tracks status, the standing resolution proposal (outcome, split amounts and who proposed it), and the final accepted outcome once both parties agree. |
 | **DisputeEvidence** | Files and comments submitted by either party during a dispute. |
 
 ## 6. Payroll
