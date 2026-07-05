@@ -70,4 +70,13 @@ export class NotificationsService {
       data: { read: true },
     });
   }
+
+  /** Delete a single notification, scoped to its owner. */
+  async remove(id: string, userId: string) {
+    const { count } = await this.prisma.notification.deleteMany({
+      where: { id, userId },
+    });
+    if (count === 0) throw new NotFoundException('Notification not found');
+    return { id, deleted: true };
+  }
 }
