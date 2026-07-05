@@ -19,6 +19,7 @@ import type {
   PayrollStatus,
   TransactionOperation,
   UserRole,
+  UserStatus,
 } from './enums.js';
 
 /** ISO-8601 timestamp string (e.g. "2026-06-09T12:00:00.000Z"). */
@@ -32,6 +33,8 @@ export interface User {
   email: string;
   name?: string | null;
   role: UserRole;
+  /** Account standing; a suspended account cannot sign in. */
+  status: UserStatus;
   authProvider: AuthProvider;
   /** Stellar G-address of the Pollar-managed wallet (required to operate). */
   stellarAddress?: string | null;
@@ -143,6 +146,16 @@ export interface Dispute {
   openedById: string;
   reason: string;
   status: DisputeStatus;
+  // Standing resolution proposal: one party proposes a split, the OTHER accepts
+  // it (or counter-proposes) before it settles on-chain. Null proposedById means
+  // no proposal is on the table yet.
+  proposalOutcome?: DisputeOutcome | null;
+  proposalFreelancerAmount?: DecimalString | null;
+  proposalCompanyAmount?: DecimalString | null;
+  proposalNote?: string | null;
+  proposedById?: string | null;
+  proposedAt?: ISODateString | null;
+  // Final resolution (copied from the accepted proposal).
   outcome?: DisputeOutcome | null;
   /** Amount released to the freelancer when resolved (split supported). */
   freelancerAmount?: DecimalString | null;

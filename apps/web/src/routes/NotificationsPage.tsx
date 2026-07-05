@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import type { Notification } from '@bolpay/shared';
@@ -6,6 +7,7 @@ import { formatDateTime } from '@/lib/format';
 import {
   Button,
   Card,
+  ConfirmModal,
   EmptyState,
   ErrorState,
   PageHeader,
@@ -29,6 +31,7 @@ function targetOf(notification: Notification): string | null {
 export function NotificationsPage() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const [toDelete, setToDelete] = useState<Notification | null>(null);
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['notifications', 'all'],
@@ -47,6 +50,14 @@ export function NotificationsPage() {
   const markAll = useMutation({
     mutationFn: async () => api.post('/notifications/read-all'),
     onSuccess: invalidate,
+  });
+
+  const remove = useMutation({
+    mutationFn: async (id: string) => api.delete(`/notifications/${id}`),
+    onSuccess: () => {
+      invalidate();
+      setToDelete(null);
+    },
   });
 
   return (
@@ -92,6 +103,18 @@ export function NotificationsPage() {
                     <td className="muted" style={{ whiteSpace: 'nowrap' }}>
                       {formatDateTime(notification.createdAt)}
                     </td>
+                    <td style={{ width: 40, textAlign: 'right' }}>
+                      <Button
+                        variant="ghost"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setToDelete(notification);
+                        }}
+                        aria-label="Delete notification"
+                      >
+                        ✕
+                      </Button>
+                    </td>
                   </tr>
                 );
               })}
@@ -99,6 +122,19 @@ export function NotificationsPage() {
           </table>
         )}
       </Card>
+
+      {toDelete && (
+        <ConfirmModal
+          title="Delete notification"
+          confirmLabel="Delete"
+          danger
+          loading={remove.isPending}
+          onClose={() => setToDelete(null)}
+          onConfirm={() => remove.mutate(toDelete.id)}
+        >
+          <p>This notification will be permanently removed. This cannot be undone.</p>
+        </ConfirmModal>
+      )}
     </>
   );
 }

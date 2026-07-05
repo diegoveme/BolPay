@@ -12,6 +12,16 @@ export const UserRole = {
 export type UserRole = (typeof UserRole)[keyof typeof UserRole];
 
 /**
+ * Account standing. Administrators can suspend an account (it can no longer
+ * sign in) and rehabilitate it back to active.
+ */
+export const UserStatus = {
+  Active: 'active',
+  Suspended: 'suspended',
+} as const;
+export type UserStatus = (typeof UserStatus)[keyof typeof UserStatus];
+
+/**
  * Identity provider the user authenticated with. Pollar handles the actual
  * OAuth / OTP flow client-side; the backend only records which one was used.
  */
