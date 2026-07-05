@@ -6,6 +6,11 @@ import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { PrismaExceptionFilter } from './common/filters/prisma-exception.filter';
 
+/**
+ * Application entry point. Creates the Nest app and applies the global prefix,
+ * security headers, validation pipe, exception filter, CORS and (outside
+ * production) Swagger, then starts listening.
+ */
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   const config = app.get(ConfigService);

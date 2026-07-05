@@ -298,6 +298,7 @@ export class MilestonesService {
 
   // -- Helpers -------------------------------------------------------------------
 
+  /** Load a milestone by id with its relations, or 404. */
   private async load(id: string): Promise<LoadedMilestone> {
     const milestone = await this.prisma.milestone.findUnique({
       where: { id },
@@ -307,6 +308,7 @@ export class MilestonesService {
     return milestone;
   }
 
+  /** Guard: the caller must be a party to the contract (or an administrator). */
   private assertParty(milestone: LoadedMilestone, user: AuthUser) {
     const isParty =
       milestone.contract.company.userId === user.id ||
@@ -316,6 +318,7 @@ export class MilestonesService {
     }
   }
 
+  /** Guard: only the contract's company (or an administrator) may review milestones. */
   private assertCompanyOwner(milestone: LoadedMilestone, user: AuthUser) {
     if (
       milestone.contract.company.userId !== user.id &&

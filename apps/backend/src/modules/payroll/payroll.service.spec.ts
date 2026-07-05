@@ -1,3 +1,4 @@
+/** Unit tests for PayrollService: cycle scheduling, funding and distribution. */
 import { Test } from '@nestjs/testing';
 import { Prisma } from '@prisma/client';
 import { PayrollService } from './payroll.service';

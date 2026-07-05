@@ -4,6 +4,7 @@ import { ContractsModule } from '../contracts/contracts.module';
 import { DisputesService } from './disputes.service';
 import { DisputesController } from './disputes.controller';
 
+/** Disputes: evidence, mutual propose/accept resolution and on-chain settlement. */
 @Module({
   imports: [EscrowModule, ContractsModule],
   controllers: [DisputesController],

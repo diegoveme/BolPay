@@ -370,6 +370,7 @@ export class DisputesService {
 
   // -- Helpers -------------------------------------------------------------------
 
+  /** Load a dispute by id with its relations, or 404. */
   private async load(id: string): Promise<LoadedDispute> {
     const dispute = await this.prisma.dispute.findUnique({
       where: { id },
@@ -379,6 +380,7 @@ export class DisputesService {
     return dispute;
   }
 
+  /** Load the milestone (with contract and parties) a dispute targets, or 404. */
   private async loadMilestoneForDispute(
     milestoneId: string,
   ): Promise<DisputeMilestone> {
@@ -390,6 +392,10 @@ export class DisputesService {
     return milestone;
   }
 
+  /**
+   * Guard: only a party may open a dispute, and only on an active contract with
+   * a funded escrow and a milestone that is not already released or disputed.
+   */
   private assertCanOpen(milestone: DisputeMilestone, user: AuthUser) {
     const isParty =
       milestone.contract.company.user.id === user.id ||
@@ -411,6 +417,7 @@ export class DisputesService {
     }
   }
 
+  /** Guard: the caller must be the company or the freelancer on the dispute. */
   private assertParticipant(dispute: LoadedDispute, user: AuthUser) {
     const contract = dispute.milestone.contract;
     const isParty =

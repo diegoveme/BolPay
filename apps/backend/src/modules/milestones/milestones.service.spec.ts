@@ -1,4 +1,5 @@
 /* eslint-disable @typescript-eslint/no-unsafe-assignment -- jest asymmetric matchers are typed as any */
+/** Unit tests for MilestonesService: deliverable submission, review and release. */
 import { Test } from '@nestjs/testing';
 import { Prisma } from '@prisma/client';
 import { MilestonesService } from './milestones.service';
