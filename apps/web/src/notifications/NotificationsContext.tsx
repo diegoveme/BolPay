@@ -86,6 +86,7 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
   );
 }
 
+/** Access the notifications UI context; throws if used outside its provider. */
 export function useNotificationsUi(): NotificationsContextValue {
   const ctx = useContext(NotificationsContext);
   if (!ctx) {
