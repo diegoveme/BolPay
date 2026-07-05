@@ -19,6 +19,7 @@ import type {
   PayrollStatus,
   TransactionOperation,
   UserRole,
+  UserStatus,
 } from './enums.js';
 
 /** ISO-8601 timestamp string (e.g. "2026-06-09T12:00:00.000Z"). */
@@ -32,6 +33,8 @@ export interface User {
   email: string;
   name?: string | null;
   role: UserRole;
+  /** Account standing; a suspended account cannot sign in. */
+  status: UserStatus;
   authProvider: AuthProvider;
   /** Stellar G-address of the Pollar-managed wallet (required to operate). */
   stellarAddress?: string | null;
