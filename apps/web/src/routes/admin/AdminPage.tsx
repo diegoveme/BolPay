@@ -16,7 +16,9 @@ import {
   ConfirmModal,
   EmptyState,
   ErrorState,
+  Field,
   PageHeader,
+  SelectField,
   Spinner,
 } from '@/components/ui';
 
@@ -238,33 +240,100 @@ function EscrowsTab() {
   );
 }
 
-/** Admin tab showing the global activity log across the platform. */
+/** Admin tab showing the global activity log, filterable by user, action and date. */
 function ActivityTab() {
-  const { data, isLoading, error } = useQuery({
-    queryKey: ['admin', 'activity'],
-    queryFn: async () => (await api.get<AdminActivity[]>('/activity-logs/all')).data,
+  const [userId, setUserId] = useState('');
+  const [event, setEvent] = useState('');
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
+
+  const users = useQuery({
+    queryKey: ['admin', 'users'],
+    queryFn: async () => (await api.get<User[]>('/users')).data,
   });
+
+  const { data, isLoading, error } = useQuery({
+    queryKey: ['admin', 'activity', { userId, event, from, to }],
+    queryFn: async () => {
+      const params: Record<string, string> = {};
+      if (userId) params.userId = userId;
+      if (event.trim()) params.event = event.trim();
+      if (from) params.from = new Date(from).toISOString();
+      if (to) params.to = new Date(`${to}T23:59:59.999`).toISOString();
+      return (
+        await api.get<AdminActivity[]>('/activity-logs/all', { params })
+      ).data;
+    },
+  });
+
+  const userOptions = [
+    { value: '', label: 'All users' },
+    ...(users.data ?? []).map((u) => ({ value: u.id, label: u.email })),
+  ];
+
+  const clear = () => {
+    setUserId('');
+    setEvent('');
+    setFrom('');
+    setTo('');
+  };
+  const hasFilters = Boolean(userId || event || from || to);
+
   return (
     <Card>
-      {isLoading ? (
-        <Spinner />
-      ) : error ? (
-        <ErrorState message={apiErrorMessage(error)} />
-      ) : !data || data.length === 0 ? (
-        <EmptyState title="No activity" />
-      ) : (
-        <table className="table">
-          <tbody>
-            {data.map((log) => (
-              <tr key={log.id}>
-                <td className="mono">{log.event}</td>
-                <td className="muted">{log.user?.email}</td>
-                <td className="muted">{formatDateTime(log.createdAt)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
+      <div className="row" style={{ gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+        <SelectField
+          label="User"
+          value={userId}
+          onChange={setUserId}
+          options={userOptions}
+        />
+        <Field
+          label="Action"
+          placeholder="e.g. contract, dispute"
+          value={event}
+          onChange={(e) => setEvent(e.target.value)}
+        />
+        <Field
+          label="From"
+          type="date"
+          value={from}
+          onChange={(e) => setFrom(e.target.value)}
+        />
+        <Field
+          label="To"
+          type="date"
+          value={to}
+          onChange={(e) => setTo(e.target.value)}
+        />
+        {hasFilters && (
+          <Button variant="secondary" onClick={clear}>
+            Clear
+          </Button>
+        )}
+      </div>
+
+      <div style={{ marginTop: 16 }}>
+        {isLoading ? (
+          <Spinner />
+        ) : error ? (
+          <ErrorState message={apiErrorMessage(error)} />
+        ) : !data || data.length === 0 ? (
+          <EmptyState title="No activity" />
+        ) : (
+          <table className="table">
+            <tbody>
+              {data.map((log) => (
+                <tr key={log.id}>
+                  <td className="mono">{log.event}</td>
+                  <td className="muted">{log.user?.email}</td>
+                  <td className="muted">{formatDateTime(log.createdAt)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
     </Card>
   );
 }

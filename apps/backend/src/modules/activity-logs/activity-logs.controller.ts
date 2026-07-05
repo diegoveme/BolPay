@@ -1,4 +1,4 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -17,10 +17,18 @@ export class ActivityLogsController {
     return this.activityLogs.listForUser(user.id);
   }
 
-  /** List the platform-wide activity feed (administrators only). */
+  /**
+   * List the platform-wide activity feed (administrators only), optionally
+   * filtered by user, action type and created-at date range.
+   */
   @Get('all')
   @Roles('administrator')
-  listAll() {
-    return this.activityLogs.listAll();
+  listAll(
+    @Query('userId') userId?: string,
+    @Query('event') event?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    return this.activityLogs.listAll({ userId, event, from, to });
   }
 }
