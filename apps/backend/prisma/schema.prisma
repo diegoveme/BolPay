@@ -25,6 +25,11 @@ enum UserRole {
   administrator
 }
 
+enum UserStatus {
+  active
+  suspended
+}
+
 enum AuthProvider {
   google
   github
@@ -132,6 +137,8 @@ model User {
   email          String       @unique
   name           String?
   role           UserRole
+  // Account standing. Suspended accounts are blocked at login by AuthService.
+  status         UserStatus   @default(active)
   authProvider   AuthProvider @map("auth_provider")
   // Stellar G-address of the Pollar-managed wallet. Required to operate
   // (a Stellar wallet connection is mandatory to use the platform).

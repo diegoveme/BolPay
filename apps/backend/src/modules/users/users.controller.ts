@@ -22,6 +22,7 @@ import {
   UpdateCompanyProfileDto,
   UpdateFreelancerProfileDto,
 } from './dto/update-profile.dto';
+import { UpdateUserStatusDto } from './dto/update-status.dto';
 import { UsersService } from './users.service';
 
 @ApiTags('users')
@@ -127,5 +128,16 @@ export class UsersController {
   @Roles('administrator')
   findById(@Param('id', ParseUUIDPipe) id: string) {
     return this.usersService.findById(id);
+  }
+
+  /** Suspend or rehabilitate an account (administrators). */
+  @Patch(':id/status')
+  @Roles('administrator')
+  setStatus(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateUserStatusDto,
+  ) {
+    return this.usersService.setStatus(user.id, id, dto.status);
   }
 }

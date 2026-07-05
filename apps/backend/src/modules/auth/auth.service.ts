@@ -130,6 +130,14 @@ export class AuthService {
       this.walletAuth.consume(dto.stellarAddress);
     }
 
+    // A suspended account is blocked here: ownership is proven but no session
+    // is issued until an administrator rehabilitates it.
+    if (user.status === 'suspended') {
+      throw new ForbiddenException(
+        'This account has been suspended. Contact an administrator.',
+      );
+    }
+
     const payload: JwtPayload = {
       sub: user.id,
       email: user.email,

@@ -1,5 +1,6 @@
 import {
   Controller,
+  Delete,
   Get,
   Param,
   ParseBoolPipe,
@@ -52,5 +53,14 @@ export class NotificationsController {
   @Post('read-all')
   markAllRead(@CurrentUser() user: AuthUser) {
     return this.notifications.markAllRead(user.id);
+  }
+
+  /** Delete a single notification. */
+  @Delete(':id')
+  remove(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.notifications.remove(id, user.id);
   }
 }

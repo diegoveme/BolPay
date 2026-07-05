@@ -38,9 +38,34 @@ export class ActivityLogsService {
     });
   }
 
-  /** Platform-wide feed (administrators). */
-  listAll() {
+  /**
+   * Platform-wide feed (administrators), optionally filtered by user, action
+   * type (substring match) and a created-at date range.
+   */
+  listAll(
+    filters: {
+      userId?: string;
+      event?: string;
+      from?: string;
+      to?: string;
+    } = {},
+  ) {
+    const where: Prisma.ActivityLogWhereInput = {};
+
+    if (filters.userId) where.userId = filters.userId;
+    if (filters.event?.trim()) {
+      where.event = { contains: filters.event.trim(), mode: 'insensitive' };
+    }
+
+    const createdAt: Prisma.DateTimeFilter = {};
+    const from = filters.from ? new Date(filters.from) : null;
+    const to = filters.to ? new Date(filters.to) : null;
+    if (from && !Number.isNaN(from.getTime())) createdAt.gte = from;
+    if (to && !Number.isNaN(to.getTime())) createdAt.lte = to;
+    if (createdAt.gte || createdAt.lte) where.createdAt = createdAt;
+
     return this.prisma.activityLog.findMany({
+      where,
       orderBy: { createdAt: 'desc' },
       take: 200,
       include: { user: { select: { id: true, email: true, role: true } } },

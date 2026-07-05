@@ -213,6 +213,34 @@ export class UsersService {
     return user;
   }
 
+  /**
+   * Suspend or rehabilitate an account (administrators). A suspended account is
+   * blocked at login by AuthService. Administrators cannot change their own
+   * status, to avoid locking themselves out.
+   */
+  async setStatus(
+    actingUserId: string,
+    userId: string,
+    status: 'active' | 'suspended',
+  ) {
+    if (actingUserId === userId) {
+      throw new ForbiddenException('You cannot change your own account status');
+    }
+    const target = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!target) throw new NotFoundException('User not found');
+
+    const updated = await this.prisma.user.update({
+      where: { id: userId },
+      data: { status },
+      include: { companyProfile: true, freelancerProfile: true },
+    });
+    await this.activityLogs.record(actingUserId, 'user.status_changed', {
+      userId,
+      status,
+    });
+    return updated;
+  }
+
   // -- Invitations -------------------------------------------------------------
 
   /** Invite a user by email, persist the invitation and email the link. */
