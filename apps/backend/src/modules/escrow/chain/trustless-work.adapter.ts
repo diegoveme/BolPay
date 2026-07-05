@@ -50,6 +50,7 @@ export class TrustlessWorkAdapter implements EscrowChainAdapter {
         : Networks.TESTNET;
   }
 
+  /** The platform keypair's Stellar address (escrow signer and executor). */
   private get platformAddress(): string {
     return this.keypair.publicKey();
   }

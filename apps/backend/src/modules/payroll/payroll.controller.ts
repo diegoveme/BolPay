@@ -76,6 +76,7 @@ export class PayrollController {
     return this.payrollService.confirmFund(id, user, dto.txHash, dto.firstRun);
   }
 
+  /** Run the funded cycle immediately (manual trigger). */
   @Post(':id/execute')
   @ApiOperation({
     summary: 'Run the funded cycle immediately (manual trigger)',
