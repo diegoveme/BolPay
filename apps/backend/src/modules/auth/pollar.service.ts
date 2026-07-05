@@ -37,6 +37,7 @@ export class PollarService {
     }
   }
 
+  /** Whether a Pollar secret key is configured (enables server-side wallet verification). */
   get isConfigured(): boolean {
     return this.secretKey.length > 0;
   }

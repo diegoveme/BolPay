@@ -36,6 +36,7 @@ export class TrustlineService {
     );
   }
 
+  /** The USDC asset (code + configured issuer) trustlines are opened against. */
   private get usdc(): Asset {
     return new Asset('USDC', this.usdcIssuer);
   }
@@ -87,6 +88,7 @@ export class TrustlineService {
     }
   }
 
+  /** Load a Stellar account, friendbot-funding it first on testnet if it does not exist. */
   private async loadOrFund(address: string) {
     try {
       return await this.server.loadAccount(address);

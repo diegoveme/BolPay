@@ -157,6 +157,7 @@ export class AuthService {
     });
   }
 
+  /** Register a first-time account from a wallet login: resolve the role and create the user. */
   private async register(email: string, dto: LoginDto) {
     const role = await this.resolveRole(email, dto);
     const name = dto.name ?? email.split('@')[0];

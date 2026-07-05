@@ -68,6 +68,7 @@ export class MailService {
     }
   }
 
+  /** Whether an SMTP transporter is configured (otherwise emails are only logged). */
   get isConfigured(): boolean {
     return this.transporter !== null;
   }
@@ -131,6 +132,7 @@ export class MailService {
 
   // -- internals --------------------------------------------------------------
 
+  /** Send an email via SMTP; logs and no-ops when no transporter is configured. */
   private async send(message: {
     to: string;
     subject: string;
@@ -167,6 +169,7 @@ export class MailService {
     }
   }
 
+  /** Build an HTML call-to-action button with a plain-text link fallback. */
   private button(label: string, href: string): string {
     const safeHref = this.escapeHtml(href);
     const safeLabel = this.escapeHtml(label);
@@ -174,6 +177,7 @@ export class MailService {
             <p style="color:#6b7280;font-size:13px">Or paste this link: <br/>${safeHref}</p>`;
   }
 
+  /** Wrap email body HTML in the branded BolPay layout (logo and heading). */
   private layout(title: string, body: string): string {
     const logo = this.logo
       ? `<img src="cid:${LOGO_CID}" alt="BolPay" width="72" height="72" style="display:block;border:0;margin:0 0 12px" />`
