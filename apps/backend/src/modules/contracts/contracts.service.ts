@@ -405,6 +405,7 @@ export class ContractsService {
 
   // -- Escrow funding: signed by the COMPANY with its own wallet ---------------
 
+  /** Load a contract by id and assert the caller is the owning company. */
   private async requireCompanyContract(id: string, user: AuthUser) {
     const contract = await this.prisma.contract.findUnique({
       where: { id },
@@ -417,6 +418,7 @@ export class ContractsService {
     return contract;
   }
 
+  /** Total escrow value: the sum of a contract's milestone amounts. */
   private contractTotal(milestones: { amount: Prisma.Decimal }[]) {
     return sumAmounts(milestones);
   }
@@ -584,6 +586,7 @@ export class ContractsService {
 
   // -- Helpers -------------------------------------------------------------------
 
+  /** Load the caller's company profile, or fail if they have none. */
   private async requireCompanyProfile(userId: string) {
     const profile = await this.prisma.companyProfile.findUnique({
       where: { userId },
@@ -592,6 +595,7 @@ export class ContractsService {
     return profile;
   }
 
+  /** Load the caller's freelancer profile, or fail if they have none. */
   private async requireFreelancerProfile(userId: string) {
     const profile = await this.prisma.freelancerProfile.findUnique({
       where: { userId },
@@ -600,6 +604,7 @@ export class ContractsService {
     return profile;
   }
 
+  /** Load a contract, allowing only its owning company (or an administrator). */
   private async requireOwnedByCompany(id: string, user: AuthUser) {
     const contract = await this.prisma.contract.findUnique({
       where: { id },
@@ -612,6 +617,7 @@ export class ContractsService {
     return contract;
   }
 
+  /** Load a contract, allowing only its assigned freelancer. */
   private async requireAssignedFreelancer(id: string, user: AuthUser) {
     const contract = await this.prisma.contract.findUnique({
       where: { id },

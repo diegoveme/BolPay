@@ -21,6 +21,11 @@ import { PayrollModule } from './modules/payroll/payroll.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { ActivityLogsModule } from './modules/activity-logs/activity-logs.module';
 
+/**
+ * Root application module. Wires global configuration, JWT, task scheduling and
+ * rate limiting, and registers every feature module. The three global guards
+ * (throttling, then authentication, then authorization) run in that order.
+ */
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true, load: [configuration] }),

@@ -377,6 +377,7 @@ export class PayrollService {
 
   // -- Helpers -----------------------------------------------------------------------
 
+  /** Compute the next run date after a given date for the payroll frequency. */
   private advance(from: Date, frequency: PayrollFrequency): Date {
     const next = new Date(from);
     switch (frequency) {
@@ -434,6 +435,7 @@ export class PayrollService {
     );
   }
 
+  /** Load the caller's company profile, or fail if they have none. */
   private async requireCompanyProfile(userId: string) {
     const profile = await this.prisma.companyProfile.findUnique({
       where: { userId },
@@ -442,6 +444,7 @@ export class PayrollService {
     return profile;
   }
 
+  /** Load a payroll by id with its relations, or 404. */
   private async loadById(id: string): Promise<LoadedPayroll> {
     const payroll = await this.prisma.payroll.findUnique({
       where: { id },
@@ -451,6 +454,7 @@ export class PayrollService {
     return payroll;
   }
 
+  /** Load a payroll, allowing only its owning company (or an administrator). */
   private async requireOwned(
     id: string,
     user: AuthUser,

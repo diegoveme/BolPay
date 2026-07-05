@@ -4,6 +4,7 @@ import { ContractsModule } from '../contracts/contracts.module';
 import { MilestonesService } from './milestones.service';
 import { MilestonesController } from './milestones.controller';
 
+/** Milestones: deliverable submission, review and escrow release. */
 @Module({
   imports: [EscrowModule, ContractsModule],
   controllers: [MilestonesController],
