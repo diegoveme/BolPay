@@ -14,6 +14,14 @@ export function formatUSDC(amount: string | number | null | undefined): string {
   return `${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDC`;
 }
 
+/** Compact number for chart axes and tight tiles: 1.2k, 3.4M (no currency). */
+export function formatCompact(value: number): string {
+  return new Intl.NumberFormat('en-US', {
+    notation: 'compact',
+    maximumFractionDigits: 1,
+  }).format(value);
+}
+
 /** Format an ISO date as a short, human-readable date (no time). */
 export function formatDate(iso: string | null | undefined): string {
   if (!iso) return '·';

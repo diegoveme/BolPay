@@ -1,9 +1,18 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { ActivityLog, Escrow, User } from '@bolpay/shared';
+import type {
+  ActivityLog,
+  AdminMetrics,
+  ContractStatus,
+  Escrow,
+  User,
+  UserRole,
+} from '@bolpay/shared';
 import { useAuth } from '@/auth/AuthContext';
 import { api, apiErrorMessage } from '@/lib/api';
 import {
+  contractStatusLabel,
+  formatCompact,
   formatDateTime,
   formatUSDC,
   roleLabel,
@@ -20,9 +29,18 @@ import {
   PageHeader,
   SelectField,
   Spinner,
+  Stat,
 } from '@/components/ui';
+import { BarChart, DonutChart, humanize } from '@/components/charts';
 
-type Tab = 'users' | 'escrows' | 'activity';
+type Tab = 'metrics' | 'users' | 'escrows' | 'activity';
+
+const TAB_LABELS: Record<Tab, string> = {
+  metrics: 'Metrics',
+  users: 'Users',
+  escrows: 'Escrows',
+  activity: 'Activity',
+};
 
 interface AdminEscrow extends Escrow {
   contract?: { id: string; title: string } | null;
@@ -35,30 +53,106 @@ interface AdminActivity extends ActivityLog {
 
 /** Platform supervision: users, escrow monitor and global activity (docs §Roles). */
 export function AdminPage() {
-  const [tab, setTab] = useState<Tab>('users');
+  const [tab, setTab] = useState<Tab>('metrics');
 
   return (
     <>
       <PageHeader
         title="Administration"
-        subtitle="Platform supervision: users, escrows and global activity"
+        subtitle="Platform supervision: metrics, users, escrows and global activity"
         actions={
           <div className="row">
-            {(['users', 'escrows', 'activity'] as Tab[]).map((t) => (
+            {(['metrics', 'users', 'escrows', 'activity'] as Tab[]).map((t) => (
               <Button
                 key={t}
                 variant={tab === t ? 'primary' : 'secondary'}
                 onClick={() => setTab(t)}
               >
-                {t === 'users' ? 'Users' : t === 'escrows' ? 'Escrows' : 'Activity'}
+                {TAB_LABELS[t]}
               </Button>
             ))}
           </div>
         }
       />
+      {tab === 'metrics' && <MetricsTab />}
       {tab === 'users' && <UsersTab />}
       {tab === 'escrows' && <EscrowsTab />}
       {tab === 'activity' && <ActivityTab />}
+    </>
+  );
+}
+
+/** Admin tab with platform-wide KPIs and charts (docs DFR 9.2). */
+function MetricsTab() {
+  const { data, isLoading, error } = useQuery({
+    queryKey: ['admin', 'metrics'],
+    queryFn: async () => (await api.get<AdminMetrics>('/metrics/admin')).data,
+  });
+
+  if (isLoading)
+    return (
+      <Card>
+        <Spinner />
+      </Card>
+    );
+  if (error)
+    return (
+      <Card>
+        <ErrorState message={apiErrorMessage(error)} />
+      </Card>
+    );
+  if (!data) return null;
+
+  const roleLabelFn = (key: string) => roleLabel[key as UserRole] ?? humanize(key);
+  const contractLabelFn = (key: string) =>
+    contractStatusLabel[key as ContractStatus] ?? humanize(key);
+
+  return (
+    <>
+      <div className="stats-grid">
+        <Stat label="Total users" value={data.totals.users} />
+        <Stat label="Active contracts" value={data.totals.activeContracts} />
+        <Stat label="USDC in escrow" value={formatUSDC(data.totals.usdcInEscrow)} />
+        <Stat
+          label="Open disputes"
+          value={data.totals.openDisputes}
+          tone={data.totals.openDisputes > 0 ? 'warning' : undefined}
+        />
+      </div>
+
+      <div className="charts-grid">
+        <Card title="Contracts created (last 6 months)">
+          <BarChart data={data.contractsPerMonth} />
+        </Card>
+        <Card title="Users by role">
+          <DonutChart
+            data={data.usersByRole}
+            caption="users"
+            label={roleLabelFn}
+          />
+        </Card>
+        <Card title="Contracts by status">
+          <DonutChart
+            data={data.contractsByStatus}
+            caption="contracts"
+            label={contractLabelFn}
+          />
+        </Card>
+        <Card title="Escrows by status">
+          <DonutChart data={data.escrowsByStatus} caption="escrows" />
+        </Card>
+      </div>
+
+      <Card title="Escrow funding (USDC)">
+        <BarChart
+          data={[
+            { label: 'Funded', value: data.escrowFunding.funded },
+            { label: 'Released', value: data.escrowFunding.released },
+          ]}
+          color="var(--chart-3)"
+          format={formatCompact}
+        />
+      </Card>
     </>
   );
 }
