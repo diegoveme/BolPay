@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Moon, Sun } from 'lucide-react';
 
 /** Read the currently applied theme from the document element. */
 function current(): 'light' | 'dark' {
@@ -28,7 +29,7 @@ export function ThemeToggle() {
       aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
       title={theme === 'dark' ? 'Light mode' : 'Dark mode'}
     >
-      {theme === 'dark' ? '☀️' : '🌙'}
+      {theme === 'dark' ? <Sun size={18} aria-hidden /> : <Moon size={18} aria-hidden />}
     </button>
   );
 }
