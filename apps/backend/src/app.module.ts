@@ -20,6 +20,7 @@ import { DisputesModule } from './modules/disputes/disputes.module';
 import { PayrollModule } from './modules/payroll/payroll.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { ActivityLogsModule } from './modules/activity-logs/activity-logs.module';
+import { MetricsModule } from './modules/metrics/metrics.module';
 
 /**
  * Root application module. Wires global configuration, JWT, task scheduling and
@@ -53,6 +54,7 @@ import { ActivityLogsModule } from './modules/activity-logs/activity-logs.module
     PayrollModule,
     NotificationsModule,
     ActivityLogsModule,
+    MetricsModule,
   ],
   controllers: [HealthController],
   providers: [
