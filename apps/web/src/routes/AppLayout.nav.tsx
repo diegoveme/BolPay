@@ -1,37 +1,47 @@
 import { useState } from 'react';
+import {
+  BarChart3,
+  Banknote,
+  Bell,
+  Check,
+  FileText,
+  LayoutDashboard,
+  Scale,
+  User,
+} from 'lucide-react';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui';
 
-/** Role-based sidebar navigation entries keyed by the user's role. */
+/** Role-based sidebar navigation entries (with icon) keyed by the user's role. */
 export const NAV_BY_ROLE = {
   company: [
-    { to: '/', label: 'Home' },
-    { to: '/contracts', label: 'Contracts' },
-    { to: '/payrolls', label: 'Payroll' },
-    { to: '/disputes', label: 'Disputes' },
-    { to: '/notifications', label: 'Notifications' },
-    { to: '/profile', label: 'Profile' },
+    { to: '/', label: 'Home', icon: LayoutDashboard },
+    { to: '/contracts', label: 'Contracts', icon: FileText },
+    { to: '/payrolls', label: 'Payroll', icon: Banknote },
+    { to: '/disputes', label: 'Disputes', icon: Scale },
+    { to: '/notifications', label: 'Notifications', icon: Bell },
+    { to: '/profile', label: 'Profile', icon: User },
   ],
   freelancer: [
-    { to: '/', label: 'Home' },
-    { to: '/contracts', label: 'Contracts' },
-    { to: '/disputes', label: 'Disputes' },
-    { to: '/notifications', label: 'Notifications' },
-    { to: '/profile', label: 'Profile' },
+    { to: '/', label: 'Home', icon: LayoutDashboard },
+    { to: '/contracts', label: 'Contracts', icon: FileText },
+    { to: '/disputes', label: 'Disputes', icon: Scale },
+    { to: '/notifications', label: 'Notifications', icon: Bell },
+    { to: '/profile', label: 'Profile', icon: User },
   ],
   fixed_employee: [
-    { to: '/', label: 'Home' },
-    { to: '/notifications', label: 'Notifications' },
-    { to: '/profile', label: 'Profile' },
+    { to: '/', label: 'Home', icon: LayoutDashboard },
+    { to: '/notifications', label: 'Notifications', icon: Bell },
+    { to: '/profile', label: 'Profile', icon: User },
   ],
   administrator: [
-    { to: '/', label: 'Home' },
-    { to: '/contracts', label: 'Contracts' },
-    { to: '/payrolls', label: 'Payroll' },
-    { to: '/disputes', label: 'Disputes' },
-    { to: '/admin', label: 'Administration' },
-    { to: '/notifications', label: 'Notifications' },
-    { to: '/profile', label: 'Profile' },
+    { to: '/', label: 'Home', icon: LayoutDashboard },
+    { to: '/contracts', label: 'Contracts', icon: FileText },
+    { to: '/payrolls', label: 'Payroll', icon: Banknote },
+    { to: '/disputes', label: 'Disputes', icon: Scale },
+    { to: '/admin', label: 'Administration', icon: BarChart3 },
+    { to: '/notifications', label: 'Notifications', icon: Bell },
+    { to: '/profile', label: 'Profile', icon: User },
   ],
 } as const;
 
@@ -53,7 +63,9 @@ export function VerifyEmailBanner() {
         Verify your email to enable invitations and escrow funding.
       </span>
       {state === 'sent' ? (
-        <span>Verification email sent ✓</span>
+        <span className="row" style={{ gap: 6 }}>
+          Verification email sent <Check size={15} />
+        </span>
       ) : (
         <Button variant="ghost" onClick={resend} loading={state === 'sending'}>
           Resend verification

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { X } from 'lucide-react';
 
 export interface AsyncOption {
   value: string;
@@ -156,7 +157,7 @@ export function AsyncSelect({
               clear();
             }}
           >
-            ✕
+            <X size={14} aria-hidden />
           </button>
         )}
       </div>

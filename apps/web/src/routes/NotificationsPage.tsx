@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
+import { X } from 'lucide-react';
 import type { Notification } from '@bolpay/shared';
 import { api, apiErrorMessage } from '@/lib/api';
 import { formatDateTime } from '@/lib/format';
@@ -112,7 +113,7 @@ export function NotificationsPage() {
                         }}
                         aria-label="Delete notification"
                       >
-                        ✕
+                        <X size={16} aria-hidden />
                       </Button>
                     </td>
                   </tr>

@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { usePollar } from '@pollar/react';
 import { useQuery } from '@tanstack/react-query';
+import { Bell } from 'lucide-react';
 import type { Notification } from '@bolpay/shared';
 import { useAuth } from '@/auth/AuthContext';
 import { api } from '@/lib/api';
@@ -50,18 +51,22 @@ export function AppLayout() {
           <img src="/logo.png" alt="" />
           Bol<span>Pay</span>
         </p>
-        {nav.map((item) => (
-          <NavLink
-            key={item.to}
-            to={item.to}
-            end={item.to === '/'}
-            className={({ isActive }) =>
-              `sidebar__link${isActive ? ' active' : ''}`
-            }
-          >
-            {item.label}
-          </NavLink>
-        ))}
+        {nav.map((item) => {
+          const Icon = item.icon;
+          return (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              end={item.to === '/'}
+              className={({ isActive }) =>
+                `sidebar__link${isActive ? ' active' : ''}`
+              }
+            >
+              <Icon size={17} strokeWidth={2} aria-hidden />
+              {item.label}
+            </NavLink>
+          );
+        })}
         <div className="sidebar__footer">
           <p style={{ fontWeight: 650, color: '#fff' }}>
             {user.name ?? user.email}
@@ -99,7 +104,7 @@ export function AppLayout() {
             aria-label="Notifications"
             onClick={() => navigate('/notifications')}
           >
-            🔔
+            <Bell size={18} aria-hidden />
             {unreadCount > 0 && (
               <span className="topbar__bell-dot">{Math.min(unreadCount, 99)}</span>
             )}
