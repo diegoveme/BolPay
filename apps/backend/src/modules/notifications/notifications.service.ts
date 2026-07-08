@@ -7,6 +7,7 @@ import type { Notification, Prisma } from '@prisma/client';
 import { Observable, Subject, filter, map } from 'rxjs';
 import { PrismaService } from '../../prisma/prisma.service';
 
+/** A persisted notification paired with its recipient, pushed over the SSE stream. */
 export interface NotificationEvent {
   userId: string;
   notification: Notification;

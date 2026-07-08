@@ -350,7 +350,9 @@ export class PayrollService {
               { status: 'funded' }
             : // Succeeded/partial: already 'active' from the claim. The next
               // cycle requires funding again, so drop the escrow and advance the
-              // schedule.
+              // schedule. Known limitation: on a 'partial' run the failed
+              // items' funds stay locked in the now-detached escrow and are not
+              // retried automatically; they need manual reconciliation.
               {
                 status: 'active',
                 escrowId: null,

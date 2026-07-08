@@ -14,6 +14,7 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
+import { MAX_AVATAR_BYTES } from '../../common/constants';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import type { AuthUser } from '../../common/types/auth';
@@ -57,7 +58,7 @@ export class UsersController {
   @ApiOperation({ summary: 'Upload an avatar/logo image (max 2MB)' })
   @ApiConsumes('multipart/form-data')
   @UseInterceptors(
-    FileInterceptor('file', { limits: { fileSize: 2 * 1024 * 1024 } }),
+    FileInterceptor('file', { limits: { fileSize: MAX_AVATAR_BYTES } }),
   )
   uploadAvatar(
     @CurrentUser() user: AuthUser,

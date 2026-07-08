@@ -1,17 +1,20 @@
+import { randomUUID } from 'node:crypto';
 import {
   BadRequestException,
   ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { randomUUID } from 'node:crypto';
 import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ActivityLogsService } from '../activity-logs/activity-logs.service';
 import { MailService } from '../mail/mail.service';
 import type { AuthUser } from '../../common/types/auth';
-import { INVITATION_TTL_DAYS } from '../../common/constants';
+import {
+  INVITATION_TTL_DAYS,
+  MAX_AVATAR_BYTES,
+} from '../../common/constants';
 import { CreateInvitationDto } from './dto/create-invitation.dto';
 import {
   UpdateCompanyProfileDto,
@@ -91,7 +94,7 @@ export class UsersService {
     if (!allowed.includes(file.mimetype)) {
       throw new BadRequestException('Format not allowed (PNG, JPG, WEBP or GIF)');
     }
-    if (file.size > 2 * 1024 * 1024) {
+    if (file.size > MAX_AVATAR_BYTES) {
       throw new BadRequestException('The image exceeds the 2MB maximum');
     }
     const baseUrl = this.config.get<string>('supabase.url');
@@ -257,6 +260,20 @@ export class UsersService {
       select: { id: true, email: true },
     });
     if (!target) throw new NotFoundException('User not found');
+
+    // A fixed employee who has received payroll is linked only through the
+    // optional PayrollItem.recipientUser relation, which is SetNull rather than
+    // Restrict: deleting would silently null those historical rows and sever
+    // the audit trail. Block it explicitly, as we do for restricting FKs below.
+    const payrollLink = await this.prisma.payrollItem.findFirst({
+      where: { recipientUserId: userId },
+      select: { id: true },
+    });
+    if (payrollLink) {
+      throw new BadRequestException(
+        'This account has linked activity (contracts, payroll or disputes). Suspend it instead of deleting.',
+      );
+    }
 
     try {
       await this.prisma.user.delete({ where: { id: userId } });
