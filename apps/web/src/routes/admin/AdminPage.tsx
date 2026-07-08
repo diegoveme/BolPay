@@ -5,10 +5,12 @@ import type {
   AdminMetrics,
   ContractStatus,
   Escrow,
+  PayrollStatus,
   User,
   UserRole,
 } from '@bolpay/shared';
 import { useAuth } from '@/auth/AuthContext';
+import { useNotificationsUi } from '@/notifications/NotificationsContext';
 import { api, apiErrorMessage } from '@/lib/api';
 import {
   activityLabel,
@@ -16,6 +18,7 @@ import {
   formatCompact,
   formatDateTime,
   formatUSDC,
+  payrollStatusLabel,
   roleLabel,
   shortAddress,
 } from '@/lib/format';
@@ -145,6 +148,15 @@ function MetricsTab() {
         <Card title="Escrows by status">
           <DonutChart data={data.escrowsByStatus} caption="escrows" />
         </Card>
+        <Card title="Payrolls by status">
+          <DonutChart
+            data={data.payrollsByStatus}
+            caption="payrolls"
+            label={(key) =>
+              payrollStatusLabel[key as PayrollStatus] ?? humanize(key)
+            }
+          />
+        </Card>
       </div>
 
       <Card title="Escrow funding (USDC)">
@@ -165,19 +177,38 @@ function MetricsTab() {
 function UsersTab() {
   const queryClient = useQueryClient();
   const { user: currentUser } = useAuth();
+  const { pushToast } = useNotificationsUi();
   const [toToggle, setToToggle] = useState<User | null>(null);
+  const [toDelete, setToDelete] = useState<User | null>(null);
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['admin', 'users'],
     queryFn: async () => (await api.get<User[]>('/users')).data,
   });
 
+  const invalidate = () => {
+    void queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
+    void queryClient.invalidateQueries({ queryKey: ['admin', 'metrics'] });
+  };
+
   const setStatus = useMutation({
     mutationFn: async (vars: { id: string; status: 'active' | 'suspended' }) =>
       api.patch(`/users/${vars.id}/status`, { status: vars.status }),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
+      invalidate();
       setToToggle(null);
+    },
+  });
+
+  const remove = useMutation({
+    mutationFn: async (id: string) => api.delete(`/users/${id}`),
+    onSuccess: () => {
+      invalidate();
+      setToDelete(null);
+    },
+    onError: (err) => {
+      pushToast(apiErrorMessage(err));
+      setToDelete(null);
     },
   });
 
@@ -226,12 +257,20 @@ function UsersTab() {
                   <td className="muted">{formatDateTime(user.createdAt)}</td>
                   <td style={{ textAlign: 'right' }}>
                     {user.id !== currentUser?.id && (
-                      <Button
-                        variant={suspended ? 'secondary' : 'danger'}
-                        onClick={() => setToToggle(user)}
+                      <div
+                        className="row"
+                        style={{ justifyContent: 'flex-end', gap: 8 }}
                       >
-                        {suspended ? 'Rehabilitate' : 'Suspend'}
-                      </Button>
+                        <Button
+                          variant={suspended ? 'secondary' : 'danger'}
+                          onClick={() => setToToggle(user)}
+                        >
+                          {suspended ? 'Rehabilitate' : 'Suspend'}
+                        </Button>
+                        <Button variant="ghost" onClick={() => setToDelete(user)}>
+                          Delete
+                        </Button>
+                      </div>
                     )}
                   </td>
                 </tr>
@@ -274,6 +313,25 @@ function UsersTab() {
               </>
             )}
           </p>
+        </ConfirmModal>
+      )}
+
+      {toDelete && (
+        <ConfirmModal
+          title="Delete account"
+          confirmLabel="Delete account"
+          danger
+          loading={remove.isPending}
+          onClose={() => setToDelete(null)}
+          onConfirm={() => remove.mutate(toDelete.id)}
+        >
+          <p>
+            <strong>{toDelete.email}</strong> will be permanently removed.
+          </p>
+          <div className="modal__danger-note">
+            This cannot be undone. Accounts with activity (contracts, payroll or
+            disputes) cannot be deleted; suspend them instead.
+          </div>
         </ConfirmModal>
       )}
     </Card>

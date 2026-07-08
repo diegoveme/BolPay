@@ -32,6 +32,7 @@ export class MetricsService {
     const [
       usersByRole,
       contractsByStatus,
+      payrollsByStatus,
       escrowsByStatus,
       escrowFunding,
       openDisputes,
@@ -41,6 +42,7 @@ export class MetricsService {
     ] = await Promise.all([
       this.prisma.user.groupBy({ by: ['role'], _count: { _all: true } }),
       this.prisma.contract.groupBy({ by: ['status'], _count: { _all: true } }),
+      this.prisma.payroll.groupBy({ by: ['status'], _count: { _all: true } }),
       this.prisma.escrow.groupBy({ by: ['status'], _count: { _all: true } }),
       this.prisma.escrow.aggregate({
         _sum: { fundedAmount: true, releasedAmount: true },
@@ -71,6 +73,7 @@ export class MetricsService {
       contractsPerMonth: bucketByMonth(
         contractDates.map((c) => ({ date: c.createdAt, value: 1 })),
       ),
+      payrollsByStatus: toCategories(payrollsByStatus, 'status'),
       escrowFunding: { funded, released },
       escrowsByStatus: toCategories(escrowsByStatus, 'status'),
     };

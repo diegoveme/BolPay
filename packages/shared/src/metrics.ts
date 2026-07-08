@@ -31,6 +31,7 @@ export interface AdminMetrics {
   contractsByStatus: CategoryCount[];
   /** Contracts created per month over the recent window. */
   contractsPerMonth: MetricPoint[];
+  payrollsByStatus: CategoryCount[];
   escrowFunding: { funded: number; released: number };
   escrowsByStatus: CategoryCount[];
 }

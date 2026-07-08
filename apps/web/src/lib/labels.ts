@@ -118,6 +118,8 @@ const ACTIVITY_LABELS: Record<string, string> = {
   'payroll.created': 'Created a payroll',
   'payroll.funded': 'Funded a payroll',
   'payroll.executed': 'Ran the payroll',
+  'user.status_changed': 'Changed an account status',
+  'user.deleted': 'Deleted an account',
 };
 
 /** Map an activity-log event key to a readable label, falling back to the key. */

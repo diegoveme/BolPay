@@ -241,6 +241,45 @@ export class UsersService {
     return updated;
   }
 
+  /**
+   * Permanently delete an account (administrators). Blocked for the admin's own
+   * account, and for accounts with linked activity (contracts, payroll,
+   * disputes, invitations): those must be suspended instead, so financial
+   * history and the audit trail stay intact. Cascades the account's wallets,
+   * notifications, tokens and empty profiles.
+   */
+  async deleteUser(actingUserId: string, userId: string) {
+    if (actingUserId === userId) {
+      throw new ForbiddenException('You cannot delete your own account');
+    }
+    const target = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, email: true },
+    });
+    if (!target) throw new NotFoundException('User not found');
+
+    try {
+      await this.prisma.user.delete({ where: { id: userId } });
+    } catch (error) {
+      // A restricting foreign key means the account still has linked records.
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2003'
+      ) {
+        throw new BadRequestException(
+          'This account has linked activity (contracts, payroll or disputes). Suspend it instead of deleting.',
+        );
+      }
+      throw error;
+    }
+
+    await this.activityLogs.record(actingUserId, 'user.deleted', {
+      userId,
+      email: target.email,
+    });
+    return { deleted: true };
+  }
+
   // -- Invitations -------------------------------------------------------------
 
   /** Invite a user by email, persist the invitation and email the link. */

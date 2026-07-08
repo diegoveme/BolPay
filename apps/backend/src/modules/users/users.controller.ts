@@ -140,4 +140,14 @@ export class UsersController {
   ) {
     return this.usersService.setStatus(user.id, id, dto.status);
   }
+
+  /** Permanently delete an account with no linked activity (administrators). */
+  @Delete(':id')
+  @Roles('administrator')
+  delete(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.usersService.deleteUser(user.id, id);
+  }
 }
