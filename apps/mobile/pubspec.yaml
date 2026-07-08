@@ -1,0 +1,28 @@
+name: bolpay_mobile
+description: "BolPay mobile client (Flutter): freelance-escrow platform with parity to the web app."
+# Prevents accidental publication to pub.dev; this is a private application package.
+publish_to: 'none'
+
+# version is versionName+versionCode on Android and CFBundleShortVersionString+CFBundleVersion on iOS.
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.12.1
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  http: ^1.6.0 # REST calls to the BolPay backend API.
+  go_router: ^17.3.0 # Declarative routing and deep links.
+  shared_preferences: ^2.5.5 # Lightweight, non-sensitive local preferences.
+  flutter_secure_storage: ^9.2.2 # Encrypted storage for auth tokens (needs Android API 23+).
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+  flutter_lints: ^6.0.0 # Recommended lints; extended in analysis_options.yaml.
+
+flutter:
+  uses-material-design: true # Bundles the Material Icons font.

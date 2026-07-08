@@ -1,0 +1,22 @@
+# This file configures the analyzer, which statically analyzes Dart code to
+# check for errors, warnings, and lints.
+#
+# Run with `flutter analyze`. Lint docs: https://dart.dev/lints.
+
+# Base set of recommended Flutter lints.
+include: package:flutter_lints/flutter.yaml
+
+linter:
+  # Extra rules for a stricter, more consistent codebase. Suppress locally with
+  # `// ignore: name_of_lint` or `// ignore_for_file: name_of_lint` when needed.
+  rules:
+    prefer_const_constructors: true
+    prefer_const_constructors_in_immutables: true
+    prefer_const_declarations: true
+    prefer_final_locals: true
+    require_trailing_commas: true
+    always_declare_return_types: true
+    prefer_single_quotes: true
+    avoid_print: true
+    unnecessary_this: true
+    prefer_relative_imports: true
