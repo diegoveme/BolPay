@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { usePollar } from '@pollar/react';
 import { useQuery } from '@tanstack/react-query';
-import { Bell } from 'lucide-react';
+import { Bell, LogOut } from 'lucide-react';
 import type { Notification } from '@bolpay/shared';
 import { useAuth } from '@/auth/AuthContext';
 import { api } from '@/lib/api';
@@ -108,6 +108,18 @@ export function AppLayout() {
             {unreadCount > 0 && (
               <span className="topbar__bell-dot">{Math.min(unreadCount, 99)}</span>
             )}
+          </button>
+          <button
+            type="button"
+            className="topbar__bell topbar__logout"
+            aria-label="Log out"
+            title="Log out"
+            onClick={() => {
+              logout();
+              navigate('/login');
+            }}
+          >
+            <LogOut size={18} aria-hidden />
           </button>
         </header>
         <main className="content">
