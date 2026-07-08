@@ -154,6 +154,7 @@ export function PayrollDetailPage() {
               <th>Recipient</th>
               <th>Wallet</th>
               <th>Amount</th>
+              <th>Last transaction</th>
             </tr>
           </thead>
           <tbody>
@@ -166,6 +167,9 @@ export function PayrollDetailPage() {
                 </td>
                 <td className="mono muted">{shortAddress(item.recipientAddress)}</td>
                 <td>{formatUSDC(item.amount)}</td>
+                <td>
+                  <TxLink hash={item.transactions[0]?.stellarHash} />
+                </td>
               </tr>
             ))}
           </tbody>
@@ -203,23 +207,7 @@ export function PayrollDetailPage() {
                 <div style={{ marginTop: 8 }}>
                   {execution.transactions.map((tx) => (
                     <p key={tx.id} className="muted" style={{ fontSize: 12.5 }}>
-                      {formatUSDC(tx.amount)} →{' '}
-                      {tx.stellarHash &&
-                        (stellarTxUrl(tx.stellarHash) ? (
-                          <a
-                            href={stellarTxUrl(tx.stellarHash)!}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="mono"
-                            style={{ color: 'var(--color-primary)' }}
-                          >
-                            {shortAddress(tx.stellarHash)}
-                          </a>
-                        ) : (
-                          <span className="mono">
-                            {shortAddress(tx.stellarHash)} (simulated)
-                          </span>
-                        ))}
+                      {formatUSDC(tx.amount)} → <TxLink hash={tx.stellarHash} />
                     </p>
                   ))}
                 </div>
@@ -282,5 +270,22 @@ export function PayrollDetailPage() {
         />
       )}
     </>
+  );
+}
+
+/**
+ * Render a transaction hash as a link to the Stellar explorer, a "(simulated)"
+ * tag when there is no explorer URL (simulated escrow mode), or a placeholder
+ * when the recipient has not been paid yet.
+ */
+function TxLink({ hash }: { hash?: string | null }) {
+  if (!hash) return <span className="muted">·</span>;
+  const url = stellarTxUrl(hash);
+  return url ? (
+    <a href={url} target="_blank" rel="noreferrer" className="mono">
+      {shortAddress(hash)}
+    </a>
+  ) : (
+    <span className="mono muted">{shortAddress(hash)} (simulated)</span>
   );
 }
