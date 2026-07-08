@@ -611,6 +611,9 @@ h1, h2, h3 { margin: 0; color: var(--text); font-weight: 700; }
 }
 @media (max-width: 900px) { .charts-grid { grid-template-columns: 1fr; } }
 
+/* A chart card that spans the full width of the charts grid. */
+.card--wide { grid-column: 1 / -1; }
+
 .chart { position: relative; width: 100%; }
 .chart--plot { height: 216px; }
 .chart__grid { stroke: var(--chart-grid); stroke-width: 0.5; }
