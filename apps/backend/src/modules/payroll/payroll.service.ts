@@ -30,6 +30,9 @@ const PAYROLL_INCLUDE = {
     orderBy: { id: 'asc' as const },
     include: {
       recipientUser: { select: { id: true, email: true, name: true } },
+      // Most recent distribution first, so the UI can show each recipient's
+      // latest on-chain payment next to them.
+      transactions: { orderBy: { createdAt: 'desc' as const } },
     },
   },
   executions: {

@@ -79,7 +79,10 @@ export interface DisputeDetail extends Dispute {
 export interface PayrollDetail extends Payroll {
   company: { id: string; name: string; userId: string };
   escrow?: Escrow | null;
-  items: (PayrollItem & { recipientUser?: UserSummary | null })[];
+  items: (PayrollItem & {
+    recipientUser?: UserSummary | null;
+    transactions: Transaction[];
+  })[];
   executions: (PayrollExecution & { transactions: Transaction[] })[];
 }
 
