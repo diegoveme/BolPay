@@ -280,10 +280,11 @@ function CompanyCharts({ metrics }: { metrics: CompanyMetrics }) {
           format={formatCompact}
         />
       </Card>
-      <Card title="Payroll distributed per cycle">
+      <Card title="Payroll distributed per cycle" className="card--wide">
         <BarChart
           data={metrics.payrollPerCycle}
-          color="var(--chart-2)"
+          color="var(--chart-1)"
+          barPadding={0.6}
           format={formatCompact}
         />
       </Card>

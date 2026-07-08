@@ -13,10 +13,13 @@ export function BarChart({
   data,
   color = CHART_COLORS[0],
   format = (n) => String(n),
+  barPadding = 0.3,
 }: {
   data: MetricPoint[];
   color?: string;
   format?: (value: number) => string;
+  /** Band padding (0-1); higher = thinner bars. */
+  barPadding?: number;
 }) {
   const hasData = data.some((d) => d.value > 0);
   if (!hasData) return <div className="chart-empty">No data yet</div>;
@@ -25,7 +28,7 @@ export function BarChart({
   const x = scaleBand()
     .domain(data.map((_, i) => String(i)))
     .range([0, 100])
-    .padding(0.3);
+    .padding(barPadding);
   const y = scaleLinear().domain([0, max]).range([100, 0]);
   const ticks = niceTicks(max, 4);
 
