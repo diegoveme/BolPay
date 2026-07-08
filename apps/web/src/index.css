@@ -611,6 +611,40 @@ h1, h2, h3 { margin: 0; color: var(--text); font-weight: 700; }
 }
 @media (max-width: 900px) { .charts-grid { grid-template-columns: 1fr; } }
 
+/* ---------------------------------------------------------------- Responsive */
+/* Below tablet the fixed sidebar becomes a wrapping top bar so the layout
+   stops breaking on narrow screens. */
+@media (max-width: 820px) {
+  .shell { flex-direction: column; }
+  .sidebar {
+    width: 100%;
+    height: auto;
+    position: static;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    padding: 10px 14px;
+  }
+  .sidebar__brand { margin: 0 8px 0 0; }
+  .sidebar__link { margin-bottom: 0; }
+  .sidebar__footer {
+    margin: 0;
+    padding: 0;
+    border-top: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .sidebar__footer > p { display: none; }
+  .content { padding: 16px; }
+}
+@media (max-width: 640px) {
+  .page-header { flex-wrap: wrap; }
+  .page-header__actions { flex-wrap: wrap; }
+}
+@media (max-width: 520px) { .stats-grid { grid-template-columns: 1fr; } }
+
 /* A chart card that spans the full width of the charts grid. */
 .card--wide { grid-column: 1 / -1; }
 

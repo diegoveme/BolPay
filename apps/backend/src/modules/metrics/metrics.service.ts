@@ -43,7 +43,6 @@ export class MetricsService {
       payrollDates,
       fundedEscrows,
       releaseTxns,
-      topFreelancers,
     ] = await Promise.all([
       this.prisma.user.groupBy({ by: ['role'], _count: { _all: true } }),
       this.prisma.contract.groupBy({ by: ['status'], _count: { _all: true } }),
@@ -67,15 +66,6 @@ export class MetricsService {
       this.prisma.transaction.findMany({
         where: { operation: { in: ['release', 'payroll_distribution'] } },
         select: { createdAt: true, amount: true },
-      }),
-      this.prisma.freelancerProfile.findMany({
-        select: {
-          displayName: true,
-          avatarUrl: true,
-          _count: { select: { contracts: true } },
-        },
-        orderBy: { contracts: { _count: 'desc' } },
-        take: 5,
       }),
     ]);
 
@@ -105,13 +95,6 @@ export class MetricsService {
       escrowFunding: { funded, released },
       fundingTrend,
       escrowsByStatus: toCategories(escrowsByStatus, 'status'),
-      topFreelancers: topFreelancers
-        .filter((f) => f._count.contracts > 0)
-        .map((f) => ({
-          name: f.displayName,
-          avatarUrl: f.avatarUrl,
-          contracts: f._count.contracts,
-        })),
     };
   }
 
@@ -192,6 +175,20 @@ export class MetricsService {
       0,
     );
 
+    // The company's freelancers ranked by contracts done for it.
+    const ranked = await this.prisma.contract.groupBy({
+      by: ['freelancerId'],
+      where: { companyId: company },
+      _count: { _all: true },
+      orderBy: { _count: { freelancerId: 'desc' } },
+      take: 5,
+    });
+    const profiles = await this.prisma.freelancerProfile.findMany({
+      where: { id: { in: ranked.map((r) => r.freelancerId) } },
+      select: { id: true, displayName: true, avatarUrl: true },
+    });
+    const profileById = new Map(profiles.map((p) => [p.id, p]));
+
     return {
       role: 'company',
       totals: {
@@ -208,6 +205,14 @@ export class MetricsService {
         label: shortDate(e.executedAt),
         value: num(e.totalAmount),
       })),
+      topFreelancers: ranked.map((r) => {
+        const profile = profileById.get(r.freelancerId);
+        return {
+          name: profile?.displayName ?? 'Unknown',
+          avatarUrl: profile?.avatarUrl ?? null,
+          contracts: r._count._all,
+        };
+      }),
     };
   }
 
