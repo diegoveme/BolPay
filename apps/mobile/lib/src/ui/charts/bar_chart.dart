@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../core/formatters.dart';
 import '../../domain/models/metrics.dart';
 import '../theme.dart';
+import 'chart_axis.dart';
 import 'chart_palette.dart';
 
 /// Vertical bar chart (web `BarChart` parity): value bars over an x-axis of
@@ -79,51 +80,25 @@ class _BarPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final maxValue = data.fold<double>(0, (m, d) => d.value > m ? d.value : m);
-    final top = niceMax(maxValue);
-    const gutterLeft = 40.0;
-    const gutterBottom = 22.0;
-    final plot = Rect.fromLTRB(
-      gutterLeft,
-      6,
-      size.width,
-      size.height - gutterBottom,
+    final frame = CartesianFrame.forSize(size, maxValue);
+    final plot = frame.plot;
+    if (plot.width <= 0) return;
+
+    drawGridlines(
+      canvas,
+      frame,
+      gridColor: gridColor,
+      labelColor: axisText,
+      format: format,
     );
 
-    final grid = Paint()
-      ..color = gridColor
-      ..strokeWidth = 1;
-
-    // Horizontal gridlines + y-axis tick labels.
-    const ticks = 4;
-    for (var i = 0; i <= ticks; i++) {
-      final t = i / ticks;
-      final y = plot.bottom - t * plot.height;
-      canvas.drawLine(Offset(plot.left, y), Offset(plot.right, y), grid);
-      _text(
-        canvas,
-        format(top * t),
-        Offset(gutterLeft - 6, y),
-        axisText,
-        align: TextAlign.right,
-        anchorRight: true,
-        vCenter: true,
-      );
-    }
-
-    // Bars.
     final slot = plot.width / data.length;
     final barWidth = slot * (1 - barPadding);
     final fill = Paint()..color = barColor;
     for (var i = 0; i < data.length; i++) {
-      final value = data[i].value;
-      final barHeight = top <= 0 ? 0.0 : (value / top) * plot.height;
+      final barTop = frame.yFor(data[i].value);
       final left = plot.left + slot * i + (slot - barWidth) / 2;
-      final rect = Rect.fromLTWH(
-        left,
-        plot.bottom - barHeight,
-        barWidth,
-        barHeight,
-      );
+      final rect = Rect.fromLTWH(left, barTop, barWidth, plot.bottom - barTop);
       canvas.drawRRect(
         RRect.fromRectAndCorners(
           rect,
@@ -132,44 +107,15 @@ class _BarPainter extends CustomPainter {
         ),
         fill,
       );
-      _text(
+      drawChartText(
         canvas,
         data[i].label,
-        Offset(left + barWidth / 2, size.height - gutterBottom + 5),
+        Offset(left + barWidth / 2, frame.xLabelTop),
         axisText,
-        align: TextAlign.center,
         hCenter: true,
         maxWidth: slot,
       );
     }
-  }
-
-  void _text(
-    Canvas canvas,
-    String value,
-    Offset at,
-    Color color, {
-    TextAlign align = TextAlign.left,
-    bool anchorRight = false,
-    bool hCenter = false,
-    bool vCenter = false,
-    double? maxWidth,
-  }) {
-    final tp = TextPainter(
-      text: TextSpan(
-        text: value,
-        style: TextStyle(fontSize: 10, color: color),
-      ),
-      textAlign: align,
-      textDirection: TextDirection.ltr,
-      maxLines: 1,
-      ellipsis: '…',
-    )..layout(maxWidth: maxWidth ?? double.infinity);
-    var dx = at.dx;
-    if (anchorRight) dx = at.dx - tp.width;
-    if (hCenter) dx = at.dx - tp.width / 2;
-    final dy = vCenter ? at.dy - tp.height / 2 : at.dy;
-    tp.paint(canvas, Offset(dx, dy));
   }
 
   @override

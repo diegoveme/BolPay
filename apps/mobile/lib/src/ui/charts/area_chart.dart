@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../core/formatters.dart';
 import '../../domain/models/metrics.dart';
 import '../theme.dart';
+import 'chart_axis.dart';
 import 'chart_palette.dart';
 
 /// Single-series area chart (web `AreaChart` parity): a line over a soft
@@ -70,33 +71,23 @@ class _AreaPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final maxValue = data.fold<double>(0, (m, d) => d.value > m ? d.value : m);
-    final top = niceMax(maxValue);
-    const gutterLeft = 40.0;
-    const gutterBottom = 22.0;
-    final plot = Rect.fromLTRB(
-      gutterLeft,
-      6,
-      size.width,
-      size.height - gutterBottom,
-    );
+    final frame = CartesianFrame.forSize(size, maxValue);
+    final plot = frame.plot;
+    if (plot.width <= 0) return;
 
-    final grid = Paint()
-      ..color = gridColor
-      ..strokeWidth = 1;
-    const ticks = 4;
-    for (var i = 0; i <= ticks; i++) {
-      final t = i / ticks;
-      final y = plot.bottom - t * plot.height;
-      canvas.drawLine(Offset(plot.left, y), Offset(plot.right, y), grid);
-      _text(canvas, format(top * t), Offset(gutterLeft - 6, y), axisText);
-    }
+    drawGridlines(
+      canvas,
+      frame,
+      gridColor: gridColor,
+      labelColor: axisText,
+      format: format,
+    );
 
     Offset pointAt(int i) {
       final x = data.length == 1
           ? plot.center.dx
           : plot.left + plot.width * (i / (data.length - 1));
-      final y = plot.bottom - (top <= 0 ? 0 : (data[i].value / top) * plot.height);
-      return Offset(x, y);
+      return Offset(x, frame.yFor(data[i].value));
     }
 
     final line = Path();
@@ -135,35 +126,14 @@ class _AreaPainter extends CustomPainter {
 
     // X-axis labels.
     for (var i = 0; i < data.length; i++) {
-      final p = pointAt(i);
-      _text(
+      drawChartText(
         canvas,
         data[i].label,
-        Offset(p.dx, size.height - gutterBottom + 5),
+        Offset(pointAt(i).dx, frame.xLabelTop),
         axisText,
         hCenter: true,
       );
     }
-  }
-
-  void _text(
-    Canvas canvas,
-    String value,
-    Offset at,
-    Color color, {
-    bool hCenter = false,
-  }) {
-    final tp = TextPainter(
-      text: TextSpan(
-        text: value,
-        style: TextStyle(fontSize: 10, color: color),
-      ),
-      textDirection: TextDirection.ltr,
-      maxLines: 1,
-    )..layout();
-    final dx = hCenter ? at.dx - tp.width / 2 : at.dx - tp.width;
-    final dy = hCenter ? at.dy : at.dy - tp.height / 2;
-    tp.paint(canvas, Offset(dx, dy));
   }
 
   @override

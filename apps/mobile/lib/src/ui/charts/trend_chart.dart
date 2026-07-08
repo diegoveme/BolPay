@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../core/formatters.dart';
 import '../../domain/models/metrics.dart';
 import '../theme.dart';
+import 'chart_axis.dart';
 import 'chart_legend.dart';
 import 'chart_palette.dart';
 
@@ -104,37 +105,24 @@ class _TrendPainter extends CustomPainter {
         if (v > maxValue) maxValue = v;
       }
     }
-    final top = niceMax(maxValue);
-    const gutterLeft = 40.0;
-    const gutterBottom = 22.0;
-    final plot = Rect.fromLTRB(
-      gutterLeft,
-      6,
-      size.width,
-      size.height - gutterBottom,
-    );
+    final frame = CartesianFrame.forSize(size, maxValue);
+    final plot = frame.plot;
+    if (plot.width <= 0) return;
 
-    final grid = Paint()
-      ..color = gridColor
-      ..strokeWidth = 1;
-    const ticks = 4;
-    for (var i = 0; i <= ticks; i++) {
-      final t = i / ticks;
-      final y = plot.bottom - t * plot.height;
-      canvas.drawLine(Offset(plot.left, y), Offset(plot.right, y), grid);
-      _text(canvas, format(top * t), Offset(gutterLeft - 6, y));
-    }
+    drawGridlines(
+      canvas,
+      frame,
+      gridColor: gridColor,
+      labelColor: axisText,
+      format: format,
+    );
 
     double xAt(int i) => data.length == 1
         ? plot.center.dx
         : plot.left + plot.width * (i / (data.length - 1));
 
     for (final s in series) {
-      Offset pointAt(int i) {
-        final y =
-            plot.bottom - (top <= 0 ? 0 : (s.value(data[i]) / top) * plot.height);
-        return Offset(xAt(i), y);
-      }
+      Offset pointAt(int i) => Offset(xAt(i), frame.yFor(s.value(data[i])));
 
       final line = Path();
       for (var i = 0; i < data.length; i++) {
@@ -169,27 +157,14 @@ class _TrendPainter extends CustomPainter {
     }
 
     for (var i = 0; i < data.length; i++) {
-      _text(
+      drawChartText(
         canvas,
         data[i].label,
-        Offset(xAt(i), size.height - gutterBottom + 5),
+        Offset(xAt(i), frame.xLabelTop),
+        axisText,
         hCenter: true,
       );
     }
-  }
-
-  void _text(Canvas canvas, String value, Offset at, {bool hCenter = false}) {
-    final tp = TextPainter(
-      text: TextSpan(
-        text: value,
-        style: TextStyle(fontSize: 10, color: axisText),
-      ),
-      textDirection: TextDirection.ltr,
-      maxLines: 1,
-    )..layout();
-    final dx = hCenter ? at.dx - tp.width / 2 : at.dx - tp.width;
-    final dy = hCenter ? at.dy : at.dy - tp.height / 2;
-    tp.paint(canvas, Offset(dx, dy));
   }
 
   @override
