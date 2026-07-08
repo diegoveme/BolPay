@@ -1,6 +1,24 @@
 import type { CategoryCount } from '@bolpay/shared';
 import { colorAt, humanize } from './theme';
 
+/** Legend listing each named series with its colour swatch (multi-series charts). */
+export function SeriesLegend({
+  series,
+}: {
+  series: { label: string; color: string }[];
+}) {
+  return (
+    <div className="chart-legend">
+      {series.map((s) => (
+        <span key={s.label} className="chart-legend__item">
+          <span className="chart-legend__swatch" style={{ background: s.color }} />
+          {s.label}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 /** Colour-swatch legend shared by the categorical charts. */
 export function ChartLegend({
   items,

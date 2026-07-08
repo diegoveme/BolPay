@@ -24,7 +24,15 @@ import {
   roleLabel,
 } from '@/lib/format';
 import { Card, EmptyState, PageHeader, Spinner, Stat } from '@/components/ui';
-import { AreaChart, BarChart, DonutChart, humanize } from '@/components/charts';
+import {
+  AreaChart,
+  BarChart,
+  CHART_COLORS,
+  DonutChart,
+  GroupedBarChart,
+  TrendChart,
+  humanize,
+} from '@/components/charts';
 
 /** Activity feed row; the platform-wide feed (admins) also carries the actor. */
 type FeedEntry = ActivityLog & { user?: { email: string } | null };
@@ -85,19 +93,49 @@ export function DashboardPage() {
       />
 
       {isAdmin && platform && (
-        <div className="stats-grid">
-          <Stat label="Total users" value={platform.totals.users} />
-          <Stat label="Active contracts" value={platform.totals.activeContracts} />
-          <Stat
-            label="USDC locked in escrow"
-            value={formatUSDC(platform.totals.usdcInEscrow)}
-          />
-          <Stat
-            label="Open disputes"
-            value={platform.totals.openDisputes}
-            tone={platform.totals.openDisputes > 0 ? 'warning' : undefined}
-          />
-        </div>
+        <>
+          <div className="stats-grid">
+            <Stat label="Total users" value={platform.totals.users} />
+            <Stat
+              label="Active contracts"
+              value={platform.totals.activeContracts}
+            />
+            <Stat
+              label="USDC locked in escrow"
+              value={formatUSDC(platform.totals.usdcInEscrow)}
+            />
+            <Stat
+              label="Open disputes"
+              value={platform.totals.openDisputes}
+              tone={platform.totals.openDisputes > 0 ? 'warning' : undefined}
+            />
+          </div>
+          <div className="charts-grid">
+            <Card title="Contracts and payrolls per month">
+              <GroupedBarChart
+                data={platform.contractsPerMonth.map((c, i) => ({
+                  label: c.label,
+                  contracts: c.value,
+                  payrolls: platform.payrollsPerMonth[i]?.value ?? 0,
+                }))}
+                series={[
+                  { key: 'contracts', label: 'Contracts', color: CHART_COLORS[0] },
+                  { key: 'payrolls', label: 'Payrolls', color: CHART_COLORS[1] },
+                ]}
+              />
+            </Card>
+            <Card title="Funded vs released (USDC)">
+              <TrendChart
+                data={platform.fundingTrend}
+                series={[
+                  { key: 'funded', label: 'Funded', color: CHART_COLORS[0] },
+                  { key: 'released', label: 'Released', color: CHART_COLORS[2] },
+                ]}
+                format={formatCompact}
+              />
+            </Card>
+          </div>
+        </>
       )}
 
       {managesContracts && (
