@@ -12,6 +12,7 @@ import 'src/data/auth_repository.dart';
 import 'src/data/contracts_repository.dart';
 import 'src/data/disputes_repository.dart';
 import 'src/data/escrow_repository.dart';
+import 'src/data/metrics_repository.dart';
 import 'src/data/milestones_repository.dart';
 import 'src/data/notifications_repository.dart';
 import 'src/data/payroll_repository.dart';
@@ -89,6 +90,7 @@ class _BolPayAppState extends State<BolPayApp> {
   late final _disputes = DisputesRepository(widget.apiClient);
   late final _notifications = NotificationsRepository(widget.apiClient);
   late final _activity = ActivityRepository(widget.apiClient);
+  late final _metrics = MetricsRepository(widget.apiClient);
 
   @override
   void dispose() {
@@ -109,6 +111,7 @@ class _BolPayAppState extends State<BolPayApp> {
       disputes: _disputes,
       notifications: _notifications,
       activity: _activity,
+      metrics: _metrics,
       pollar: widget.pollar,
       theme: widget.theme,
       child: ValueListenableBuilder<ThemeMode>(

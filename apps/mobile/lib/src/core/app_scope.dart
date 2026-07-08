@@ -4,6 +4,7 @@ import '../data/activity_repository.dart';
 import '../data/contracts_repository.dart';
 import '../data/disputes_repository.dart';
 import '../data/escrow_repository.dart';
+import '../data/metrics_repository.dart';
 import '../data/milestones_repository.dart';
 import '../data/notifications_repository.dart';
 import '../data/payroll_repository.dart';
@@ -30,6 +31,7 @@ class AppScope extends InheritedWidget {
     required this.disputes,
     required this.notifications,
     required this.activity,
+    required this.metrics,
     required this.pollar,
     required this.theme,
     required super.child,
@@ -51,6 +53,7 @@ class AppScope extends InheritedWidget {
   final DisputesRepository disputes;
   final NotificationsRepository notifications;
   final ActivityRepository activity;
+  final MetricsRepository metrics;
 
   static AppScope of(BuildContext context) {
     final scope = context.dependOnInheritedWidgetOfExactType<AppScope>();
@@ -77,6 +80,7 @@ class AppScope extends InheritedWidget {
       disputes != oldWidget.disputes ||
       notifications != oldWidget.notifications ||
       activity != oldWidget.activity ||
+      metrics != oldWidget.metrics ||
       pollar != oldWidget.pollar ||
       theme != oldWidget.theme;
 }

@@ -61,6 +61,26 @@ String formatDateTime(String? iso) {
       '$hour12:$minute $period';
 }
 
+/// Compact number for chart axes and tight tiles: "1.2K", "3.4M", "1.2B"
+/// (no currency). Mirrors the web `formatCompact` (Intl compact, en-US).
+String formatCompact(num value) {
+  final v = value.toDouble();
+  final abs = v.abs();
+  String withSuffix(double scaled, String suffix) {
+    final fixed = scaled.toStringAsFixed(1);
+    final trimmed = fixed.endsWith('.0')
+        ? fixed.substring(0, fixed.length - 2)
+        : fixed;
+    return '$trimmed$suffix';
+  }
+
+  if (abs >= 1e9) return withSuffix(v / 1e9, 'B');
+  if (abs >= 1e6) return withSuffix(v / 1e6, 'M');
+  if (abs >= 1e3) return withSuffix(v / 1e3, 'K');
+  if (v == v.roundToDouble()) return v.toInt().toString();
+  return v.toStringAsFixed(1);
+}
+
 /// Compact relative time: "just now", "5m ago", "3h ago", "2d ago",
 /// then falls back to [formatDate].
 String relativeTime(String? iso) {

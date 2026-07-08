@@ -12,6 +12,7 @@ import 'package:bolpay_mobile/src/data/auth_repository.dart';
 import 'package:bolpay_mobile/src/data/contracts_repository.dart';
 import 'package:bolpay_mobile/src/data/disputes_repository.dart';
 import 'package:bolpay_mobile/src/data/escrow_repository.dart';
+import 'package:bolpay_mobile/src/data/metrics_repository.dart';
 import 'package:bolpay_mobile/src/data/milestones_repository.dart';
 import 'package:bolpay_mobile/src/data/notifications_repository.dart';
 import 'package:bolpay_mobile/src/data/payroll_repository.dart';
@@ -77,6 +78,7 @@ void main() {
       disputes: DisputesRepository(api),
       notifications: NotificationsRepository(api),
       activity: ActivityRepository(api),
+      metrics: MetricsRepository(api),
       // Empty publishable key: the custodial login stays hidden and the
       // manual wallet form renders directly, like a dev build.
       pollar: PollarClient(storage: storage, publishableKey: ''),

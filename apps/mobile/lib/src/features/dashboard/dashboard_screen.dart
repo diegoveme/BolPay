@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
@@ -7,13 +9,15 @@ import '../../domain/models/models.dart';
 import '../../ui/theme.dart';
 import '../../ui/widgets/error_state.dart';
 import '../../ui/widgets/section_header.dart';
+import 'widgets/dashboard_metrics.dart';
 import 'widgets/dashboard_stat_grid.dart';
 import 'widgets/quick_links_section.dart';
 import 'widgets/recent_activity_section.dart';
 import 'widgets/recent_contracts_section.dart';
 
 /// Dashboard (web `DashboardPage` parity): greeting, contract summary
-/// stats, recent contracts, quick links and the recent activity feed.
+/// stats, role-specific metric charts, recent contracts, quick links and
+/// the recent activity feed.
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
 
@@ -24,6 +28,7 @@ class DashboardScreen extends StatefulWidget {
 class _DashboardScreenState extends State<DashboardScreen> {
   List<Contract>? _contracts;
   List<ActivityLog>? _activity;
+  SummaryMetrics? _summary;
   String? _error;
 
   @override
@@ -35,8 +40,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Future<void> _load() async {
     if (!mounted) return;
     final scope = AppScope.read(context);
-    final managesContracts = scope.auth.user?.role != 'fixed_employee';
+    final role = scope.auth.user?.role;
+    final managesContracts = role != 'fixed_employee';
+    // Administrators use a platform panel on the web; the mobile dashboard
+    // does not render role charts for them.
+    final showsMetrics = role != null && role != 'administrator';
     setState(() => _error = null);
+    // Role metrics are optional: a failure here must not blank the whole
+    // dashboard, so it is fetched independently of contracts and activity.
+    if (showsMetrics) {
+      unawaited(_loadSummary(scope));
+    }
     try {
       final contracts = managesContracts
           ? await scope.contracts.list()
@@ -52,6 +66,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
       if (mounted) setState(() => _error = e.message);
     } catch (_) {
       if (mounted) setState(() => _error = 'An unexpected error occurred.');
+    }
+  }
+
+  Future<void> _loadSummary(AppScope scope) async {
+    try {
+      final summary = await scope.metrics.summary();
+      if (mounted) setState(() => _summary = summary);
+    } catch (_) {
+      // Charts are supplementary; keep the dashboard usable without them.
     }
   }
 
@@ -106,6 +129,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           lockedAmount: lockedAmount,
                         ),
                         const SizedBox(height: 20),
+                      ],
+                      if (_summary != null) ...[
+                        DashboardMetrics(metrics: _summary!),
+                        const SizedBox(height: 20),
+                      ],
+                      if (managesContracts) ...[
                         RecentContractsSection(
                           contracts: _contracts,
                           role: role,

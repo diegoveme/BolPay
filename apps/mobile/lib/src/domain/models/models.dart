@@ -11,6 +11,7 @@ export 'directory.dart';
 export 'dispute.dart';
 export 'escrow.dart';
 export 'invitation.dart';
+export 'metrics.dart';
 export 'milestone.dart';
 export 'notification_item.dart';
 export 'payroll.dart';
