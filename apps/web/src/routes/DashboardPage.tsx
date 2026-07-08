@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import type {
   ActivityLog,
+  AdminMetrics,
   CompanyMetrics,
   ContractStatus,
   FixedEmployeeMetrics,
@@ -25,14 +26,18 @@ import {
 import { Card, EmptyState, PageHeader, Spinner, Stat } from '@/components/ui';
 import { AreaChart, BarChart, DonutChart, humanize } from '@/components/charts';
 
+/** Activity feed row; the platform-wide feed (admins) also carries the actor. */
+type FeedEntry = ActivityLog & { user?: { email: string } | null };
+
 /**
- * Landing dashboard: greets the user, shows contract summary stats (for roles
- * that manage contracts), role-specific metric charts, recent contracts, and a
- * recent activity feed.
+ * Landing dashboard. Administrators get a platform snapshot (KPIs + global
+ * activity); operating roles get their contract stats, role-specific metric
+ * charts, recent contracts and their own activity feed.
  */
 export function DashboardPage() {
   const { user } = useAuth();
-  const managesContracts = user?.role !== 'fixed_employee';
+  const isAdmin = user?.role === 'administrator';
+  const managesContracts = user?.role === 'company' || user?.role === 'freelancer';
 
   const { data: contracts, isLoading } = useQuery({
     queryKey: ['contracts'],
@@ -41,15 +46,26 @@ export function DashboardPage() {
   });
 
   const { data: activity } = useQuery({
-    queryKey: ['activity-logs'],
-    queryFn: async () => (await api.get<ActivityLog[]>('/activity-logs')).data,
+    queryKey: ['dashboard', 'activity', isAdmin],
+    queryFn: async () =>
+      (
+        await api.get<FeedEntry[]>(
+          isAdmin ? '/activity-logs/all' : '/activity-logs',
+        )
+      ).data,
   });
 
-  const { data: metrics } = useQuery({
+  const { data: summary } = useQuery({
     queryKey: ['metrics', 'summary'],
     queryFn: async () => (await api.get<SummaryMetrics>('/metrics/summary')).data,
-    // Administrators have no personal summary (the endpoint is role-scoped).
-    enabled: user?.role !== 'administrator',
+    // Role-scoped: administrators use the platform metrics instead.
+    enabled: !isAdmin,
+  });
+
+  const { data: platform } = useQuery({
+    queryKey: ['metrics', 'admin'],
+    queryFn: async () => (await api.get<AdminMetrics>('/metrics/admin')).data,
+    enabled: isAdmin,
   });
 
   const active = contracts?.filter((c) => c.status === 'active') ?? [];
@@ -61,8 +77,28 @@ export function DashboardPage() {
     <>
       <PageHeader
         title={`Hi, ${user?.name ?? user?.email}`}
-        subtitle={`${roleLabel[user!.role]} dashboard · USDC payments on Stellar`}
+        subtitle={
+          isAdmin
+            ? 'Platform supervision · USDC payments on Stellar'
+            : `${roleLabel[user!.role]} dashboard · USDC payments on Stellar`
+        }
       />
+
+      {isAdmin && platform && (
+        <div className="stats-grid">
+          <Stat label="Total users" value={platform.totals.users} />
+          <Stat label="Active contracts" value={platform.totals.activeContracts} />
+          <Stat
+            label="USDC locked in escrow"
+            value={formatUSDC(platform.totals.usdcInEscrow)}
+          />
+          <Stat
+            label="Open disputes"
+            value={platform.totals.openDisputes}
+            tone={platform.totals.openDisputes > 0 ? 'warning' : undefined}
+          />
+        </div>
+      )}
 
       {managesContracts && (
         <div className="stats-grid">
@@ -73,10 +109,10 @@ export function DashboardPage() {
         </div>
       )}
 
-      {metrics?.role === 'company' && <CompanyCharts metrics={metrics} />}
-      {metrics?.role === 'freelancer' && <FreelancerCharts metrics={metrics} />}
-      {metrics?.role === 'fixed_employee' && (
-        <FixedEmployeeView metrics={metrics} />
+      {summary?.role === 'company' && <CompanyCharts metrics={summary} />}
+      {summary?.role === 'freelancer' && <FreelancerCharts metrics={summary} />}
+      {summary?.role === 'fixed_employee' && (
+        <FixedEmployeeView metrics={summary} />
       )}
 
       {managesContracts && (
@@ -116,7 +152,7 @@ export function DashboardPage() {
         </Card>
       )}
 
-      <Card title="Recent activity">
+      <Card title={isAdmin ? 'Recent platform activity' : 'Recent activity'}>
         {!activity || activity.length === 0 ? (
           <EmptyState title="No activity recorded yet" />
         ) : (
@@ -124,7 +160,8 @@ export function DashboardPage() {
             <tbody>
               {activity.slice(0, 8).map((log) => (
                 <tr key={log.id}>
-                  <td>{activityLabel(log.event)}</td>
+                  <td title={log.event}>{activityLabel(log.event)}</td>
+                  {isAdmin && <td className="muted">{log.user?.email}</td>}
                   <td className="muted">{formatDateTime(log.createdAt)}</td>
                 </tr>
               ))}
