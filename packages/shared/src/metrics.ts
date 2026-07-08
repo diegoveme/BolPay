@@ -52,8 +52,6 @@ export interface AdminMetrics {
   /** Funded vs released USDC per month (escrow funding trend). */
   fundingTrend: FundingPoint[];
   escrowsByStatus: CategoryCount[];
-  /** Freelancers ranked by contract count (top few). */
-  topFreelancers: TopFreelancer[];
 }
 
 /** Company owner metrics (GET /metrics/summary when role = company). */
@@ -70,6 +68,8 @@ export interface CompanyMetrics {
   payrollPerCycle: MetricPoint[];
   /** Funded vs released USDC per month across the company's escrows. */
   fundingTrend: FundingPoint[];
+  /** The company's freelancers ranked by contracts done for it. */
+  topFreelancers: TopFreelancer[];
 }
 
 /** Freelancer metrics (GET /metrics/summary when role = freelancer). */

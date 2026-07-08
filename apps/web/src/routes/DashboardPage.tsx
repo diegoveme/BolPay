@@ -111,31 +111,19 @@ export function DashboardPage() {
               tone={platform.totals.openDisputes > 0 ? 'warning' : undefined}
             />
           </div>
-          <div className="charts-grid">
-            <Card title="Contracts and payrolls per month">
-              <GroupedBarChart
-                data={platform.contractsPerMonth.map((c, i) => ({
-                  label: c.label,
-                  contracts: c.value,
-                  payrolls: platform.payrollsPerMonth[i]?.value ?? 0,
-                }))}
-                series={[
-                  { key: 'contracts', label: 'Contracts', color: CHART_COLORS[0] },
-                  { key: 'payrolls', label: 'Payrolls', color: CHART_COLORS[1] },
-                ]}
-              />
-            </Card>
-            <Card title="Funded vs released (USDC)">
-              <TrendChart
-                data={platform.fundingTrend}
-                series={[
-                  { key: 'funded', label: 'Funded', color: CHART_COLORS[0] },
-                  { key: 'released', label: 'Released', color: CHART_COLORS[2] },
-                ]}
-                format={formatCompact}
-              />
-            </Card>
-          </div>
+          <Card title="Contracts and payrolls per month">
+            <GroupedBarChart
+              data={platform.contractsPerMonth.map((c, i) => ({
+                label: c.label,
+                contracts: c.value,
+                payrolls: platform.payrollsPerMonth[i]?.value ?? 0,
+              }))}
+              series={[
+                { key: 'contracts', label: 'Contracts', color: CHART_COLORS[0] },
+                { key: 'payrolls', label: 'Payrolls', color: CHART_COLORS[1] },
+              ]}
+            />
+          </Card>
         </>
       )}
 
@@ -192,14 +180,9 @@ export function DashboardPage() {
       )}
 
       {isAdmin ? (
-        <div className="charts-grid">
-          <Card title="Top freelancers">
-            <Leaderboard items={platform?.topFreelancers ?? []} />
-          </Card>
-          <Card title="Recent platform activity">
-            <ActivityFeed activity={activity} showActor />
-          </Card>
-        </div>
+        <Card title="Recent platform activity">
+          <ActivityFeed activity={activity} showActor />
+        </Card>
       ) : (
         <Card title="Recent activity">
           <ActivityFeed activity={activity} showActor={false} />
@@ -280,13 +263,16 @@ function CompanyCharts({ metrics }: { metrics: CompanyMetrics }) {
           format={formatCompact}
         />
       </Card>
-      <Card title="Payroll distributed per cycle" className="card--wide">
+      <Card title="Payroll distributed per cycle">
         <BarChart
           data={metrics.payrollPerCycle}
           color="var(--chart-1)"
-          barPadding={0.6}
+          barPadding={0.5}
           format={formatCompact}
         />
+      </Card>
+      <Card title="Top freelancers">
+        <Leaderboard items={metrics.topFreelancers} />
       </Card>
     </div>
   );

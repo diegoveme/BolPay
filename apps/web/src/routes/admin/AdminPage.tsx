@@ -35,13 +35,7 @@ import {
   Spinner,
   Stat,
 } from '@/components/ui';
-import {
-  CHART_COLORS,
-  DonutChart,
-  GroupedBarChart,
-  TrendChart,
-  humanize,
-} from '@/components/charts';
+import { CHART_COLORS, DonutChart, TrendChart, humanize } from '@/components/charts';
 
 type Tab = 'metrics' | 'users' | 'escrows' | 'activity';
 
@@ -133,20 +127,18 @@ function MetricsTab() {
         />
       </div>
 
+      <Card title="Funded vs released per month (USDC)">
+        <TrendChart
+          data={data.fundingTrend}
+          series={[
+            { key: 'funded', label: 'Funded', color: CHART_COLORS[0] },
+            { key: 'released', label: 'Released', color: CHART_COLORS[2] },
+          ]}
+          format={formatCompact}
+        />
+      </Card>
+
       <div className="charts-grid">
-        <Card title="Contracts and payrolls per month">
-          <GroupedBarChart
-            data={data.contractsPerMonth.map((c, i) => ({
-              label: c.label,
-              contracts: c.value,
-              payrolls: data.payrollsPerMonth[i]?.value ?? 0,
-            }))}
-            series={[
-              { key: 'contracts', label: 'Contracts', color: CHART_COLORS[0] },
-              { key: 'payrolls', label: 'Payrolls', color: CHART_COLORS[1] },
-            ]}
-          />
-        </Card>
         <Card title="Users by role">
           <DonutChart
             data={data.usersByRole}
@@ -174,17 +166,6 @@ function MetricsTab() {
           />
         </Card>
       </div>
-
-      <Card title="Funded vs released per month (USDC)">
-        <TrendChart
-          data={data.fundingTrend}
-          series={[
-            { key: 'funded', label: 'Funded', color: CHART_COLORS[0] },
-            { key: 'released', label: 'Released', color: CHART_COLORS[2] },
-          ]}
-          format={formatCompact}
-        />
-      </Card>
     </>
   );
 }
