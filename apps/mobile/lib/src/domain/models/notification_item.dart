@@ -24,6 +24,10 @@ class NotificationItem {
   /// In-app route this notification links to, if any. Dispute wins over
   /// contract, which wins over payroll (web parity).
   String? get deepLink {
+    // Payment-received notifications go to the recipient's own dashboard:
+    // the payroll page they came from is company-only, so a fixed employee
+    // cannot open it. Their home shows the payments they received.
+    if (type == 'payroll_payment_received') return '/dashboard';
     if (disputeId != null) return '/disputes/$disputeId';
     if (contractId != null) return '/contracts/$contractId';
     if (payrollId != null) return '/payrolls/$payrollId';

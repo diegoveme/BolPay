@@ -8,14 +8,14 @@ import '../../core/app_scope.dart';
 import '../../core/formatters.dart';
 import '../../domain/models/notification_item.dart';
 import '../../ui/theme.dart';
+import '../../ui/widgets/confirm_sheet.dart';
 import '../../ui/widgets/empty_state.dart';
 import '../../ui/widgets/error_state.dart';
 import '../../ui/widgets/feedback.dart';
 
-/// Notifications inbox (web `NotificationsPage` parity): unread rows are
-/// emphasized with a dot and bold text, tapping marks the notification
-/// read and deep-links to the related contract, dispute or payroll, and
-/// "Mark all as read" clears everything.
+/// Notifications inbox (web `NotificationsPage` parity): a card list grouped
+/// by event family with a tinted icon, deep-linking to the related contract,
+/// dispute or payroll, marking items read on tap, and a per-card delete.
 ///
 /// The web also has an SSE stream; on mobile the list refreshes every
 /// 60 seconds instead (the same polling fallback the web bell uses),
@@ -78,20 +78,23 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     }
   }
 
-  Future<void> _open(NotificationItem item) async {
-    if (!item.read) {
-      final repo = AppScope.read(context).notifications;
-      setState(() {
-        _items = _items!
-            .map((n) => n.id == item.id ? n.copyWith(read: true) : n)
-            .toList();
-      });
-      try {
-        await repo.markRead(item.id);
-      } catch (e) {
-        if (mounted) showErrorSnackBar(context, e);
-      }
+  Future<void> _markRead(NotificationItem item) async {
+    if (item.read) return;
+    final repo = AppScope.read(context).notifications;
+    setState(() {
+      _items = _items!
+          .map((n) => n.id == item.id ? n.copyWith(read: true) : n)
+          .toList();
+    });
+    try {
+      await repo.markRead(item.id);
+    } catch (e) {
+      if (mounted) showErrorSnackBar(context, e);
     }
+  }
+
+  Future<void> _open(NotificationItem item) async {
+    await _markRead(item);
     final link = item.deepLink;
     if (link != null && mounted) context.go(link);
   }
@@ -111,16 +114,44 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     }
   }
 
+  Future<void> _delete(NotificationItem item) async {
+    final confirmed = await showConfirmSheet(
+      context,
+      title: 'Delete notification',
+      body: 'This notification will be permanently removed.',
+      confirmLabel: 'Delete',
+      danger: true,
+      dangerNote: 'This action cannot be undone.',
+    );
+    if (confirmed != true || !mounted) return;
+    final repo = AppScope.read(context).notifications;
+    final previous = _items;
+    setState(() {
+      _items = _items?.where((n) => n.id != item.id).toList();
+    });
+    try {
+      await repo.delete(item.id);
+    } catch (e) {
+      if (mounted) {
+        setState(() => _items = previous);
+        showErrorSnackBar(context, e);
+      }
+    }
+  }
+
+  bool get _hasUnread => _items?.any((n) => !n.read) ?? false;
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Notifications'),
         actions: [
-          TextButton(
-            onPressed: (_items == null || _markingAll) ? null : _markAllRead,
-            child: const Text('Mark all as read'),
-          ),
+          if (_hasUnread)
+            TextButton(
+              onPressed: _markingAll ? null : _markAllRead,
+              child: const Text('Mark all as read'),
+            ),
         ],
       ),
       body: switch ((_items, _error)) {
@@ -148,11 +179,17 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           onRefresh: _load,
           child: ListView.separated(
             physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.all(16),
             itemCount: items.length,
-            separatorBuilder: (_, _) => const Divider(height: 1),
+            separatorBuilder: (_, _) => const SizedBox(height: 10),
             itemBuilder: (context, index) {
               final item = items[index];
-              return _NotificationTile(item: item, onTap: () => _open(item));
+              return _NotificationCard(
+                item: item,
+                onTap: item.deepLink != null ? () => _open(item) : null,
+                onMarkRead: item.read ? null : () => _markRead(item),
+                onDelete: () => _delete(item),
+              );
             },
           ),
         ),
@@ -161,58 +198,152 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   }
 }
 
-/// One notification row: unread dot + message (bold when unread) +
-/// relative time; read rows fade to 60% opacity like the web.
-class _NotificationTile extends StatelessWidget {
-  const _NotificationTile({required this.item, required this.onTap});
+/// Icon and semantic tone for a notification, grouped by its event family
+/// (web `notifStyle` parity).
+({IconData icon, Tone tone}) _notifStyle(String type) {
+  if (type.startsWith('dispute')) {
+    return (icon: Icons.warning_amber_rounded, tone: Tone.danger);
+  }
+  if (type.startsWith('deliverable')) {
+    return (icon: Icons.fact_check_outlined, tone: Tone.warning);
+  }
+  if (type.startsWith('contract')) {
+    return (icon: Icons.description_outlined, tone: Tone.info);
+  }
+  if (type.startsWith('payroll') ||
+      type.startsWith('payment') ||
+      type.startsWith('escrow')) {
+    return (icon: Icons.payments_outlined, tone: Tone.success);
+  }
+  return (icon: Icons.notifications_none, tone: Tone.neutral);
+}
+
+/// One notification card: tinted icon chip, message (bold when unread),
+/// relative time, and trailing mark-read / delete actions. Unread cards
+/// carry the subtle primary background like the web.
+class _NotificationCard extends StatelessWidget {
+  const _NotificationCard({
+    required this.item,
+    required this.onTap,
+    required this.onMarkRead,
+    required this.onDelete,
+  });
 
   final NotificationItem item;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
+  final VoidCallback? onMarkRead;
+  final VoidCallback onDelete;
 
   @override
   Widget build(BuildContext context) {
     final colors = AppColors.of(context);
-    return InkWell(
-      onTap: onTap,
-      child: Opacity(
-        opacity: item.read ? 0.6 : 1,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+    final tones = AppTones.of(context);
+    final style = _notifStyle(item.type);
+    final unread = !item.read;
+
+    return Material(
+      color: unread ? colors.primarySubtle : colors.surface,
+      borderRadius: BorderRadius.circular(AppTheme.radiusCard),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(AppTheme.radiusCard),
+        child: Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(AppTheme.radiusCard),
+            border: Border.all(
+              color: unread ? colors.primarySubtle : colors.border,
+            ),
+          ),
+          padding: const EdgeInsets.all(14),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Padding(
-                padding: const EdgeInsets.only(top: 6),
-                child: Container(
-                  width: 8,
-                  height: 8,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: item.read ? Colors.transparent : colors.primary,
-                  ),
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: tones.background(style.tone),
+                  borderRadius: BorderRadius.circular(AppTheme.radiusControl),
+                ),
+                child: Icon(
+                  style.icon,
+                  size: 18,
+                  color: tones.color(style.tone),
                 ),
               ),
               const SizedBox(width: 12),
               Expanded(
-                child: Text(
-                  item.message,
-                  style: TextStyle(
-                    fontSize: 14,
-                    height: 1.4,
-                    color: colors.text,
-                    fontWeight: item.read ? FontWeight.w400 : FontWeight.w600,
-                  ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      item.message,
+                      style: TextStyle(
+                        fontSize: 14,
+                        height: 1.4,
+                        color: colors.text,
+                        fontWeight:
+                            unread ? FontWeight.w600 : FontWeight.w400,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      formatDateTime(item.createdAt),
+                      style: TextStyle(fontSize: 12, color: colors.textMuted),
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(width: 12),
-              Text(
-                relativeTime(item.createdAt),
-                style: TextStyle(fontSize: 12, color: colors.textMuted),
+              const SizedBox(width: 4),
+              if (onMarkRead != null)
+                _CardAction(
+                  icon: Icons.check,
+                  tooltip: 'Mark as read',
+                  color: colors.textMuted,
+                  onPressed: onMarkRead!,
+                ),
+              _CardAction(
+                icon: Icons.delete_outline,
+                tooltip: 'Delete',
+                color: colors.textMuted,
+                hoverColor: colors.danger,
+                onPressed: onDelete,
               ),
             ],
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Compact icon button used for the per-card notification actions.
+class _CardAction extends StatelessWidget {
+  const _CardAction({
+    required this.icon,
+    required this.tooltip,
+    required this.color,
+    required this.onPressed,
+    this.hoverColor,
+  });
+
+  final IconData icon;
+  final String tooltip;
+  final Color color;
+  final Color? hoverColor;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      icon: Icon(icon, size: 18),
+      color: color,
+      hoverColor: (hoverColor ?? color).withValues(alpha: 0.12),
+      tooltip: tooltip,
+      visualDensity: VisualDensity.compact,
+      constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+      padding: EdgeInsets.zero,
+      onPressed: onPressed,
     );
   }
 }

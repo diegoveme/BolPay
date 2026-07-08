@@ -35,4 +35,9 @@ class NotificationsRepository {
   Future<void> markAllRead() async {
     await _api.post('/notifications/read-all');
   }
+
+  /// DELETE /notifications/:id.
+  Future<void> delete(String id) async {
+    await _api.delete('/notifications/$id');
+  }
 }
