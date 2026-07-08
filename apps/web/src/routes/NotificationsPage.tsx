@@ -25,6 +25,10 @@ import {
 
 /** Map notification payloads to deep links. */
 function targetOf(notification: Notification): string | null {
+  // Payment-received notifications go to the recipient's own dashboard: the
+  // payroll page they came from is company-only, so a fixed employee cannot
+  // open it. Their home shows the payments they received.
+  if (notification.type === 'payroll_payment_received') return '/';
   const data = notification.data as Record<string, string> | null;
   if (!data) return null;
   if (data.disputeId) return `/disputes/${data.disputeId}`;
