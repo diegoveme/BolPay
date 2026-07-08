@@ -707,6 +707,29 @@ h1, h2, h3 { margin: 0; color: var(--text); font-weight: 700; }
 .notif__btn:hover { background: var(--surface-2); color: var(--text); }
 .notif__btn--danger:hover { color: var(--danger); }
 
+/* ------------------------------------------------------------- Leaderboard */
+.leaderboard { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+.leaderboard__row { display: flex; align-items: center; gap: 12px; }
+.leaderboard__rank {
+  width: 20px;
+  flex-shrink: 0;
+  text-align: center;
+  font-weight: 700;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.leaderboard__name {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.leaderboard__count { flex-shrink: 0; font-size: 13px; color: var(--text-muted); white-space: nowrap; }
+.leaderboard__empty { color: var(--text-faint); font-size: 13px; padding: 8px 0; }
+
 /* ------------------------------------------------------------- Auth notice */
 .verify-banner {
   display: flex;

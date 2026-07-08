@@ -9,6 +9,7 @@ import type {
   FreelancerMetrics,
   MilestoneStatus,
   SummaryMetrics,
+  TopFreelancer,
 } from '@bolpay/shared';
 import { useAuth } from '@/auth/AuthContext';
 import { api } from '@/lib/api';
@@ -23,9 +24,10 @@ import {
   milestoneStatusLabel,
   roleLabel,
 } from '@/lib/format';
-import { Card, EmptyState, PageHeader, Spinner, Stat } from '@/components/ui';
+import { Avatar, Card, EmptyState, PageHeader, Spinner, Stat } from '@/components/ui';
 import {
   AreaChart,
+  BarChart,
   CHART_COLORS,
   DonutChart,
   GroupedBarChart,
@@ -189,24 +191,69 @@ export function DashboardPage() {
         </Card>
       )}
 
-      <Card title={isAdmin ? 'Recent platform activity' : 'Recent activity'}>
-        {!activity || activity.length === 0 ? (
-          <EmptyState title="No activity recorded yet" />
-        ) : (
-          <table className="table">
-            <tbody>
-              {activity.slice(0, 8).map((log) => (
-                <tr key={log.id}>
-                  <td title={log.event}>{activityLabel(log.event)}</td>
-                  {isAdmin && <td className="muted">{log.user?.email}</td>}
-                  <td className="muted">{formatDateTime(log.createdAt)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </Card>
+      {isAdmin ? (
+        <div className="charts-grid">
+          <Card title="Top freelancers">
+            <Leaderboard items={platform?.topFreelancers ?? []} />
+          </Card>
+          <Card title="Recent platform activity">
+            <ActivityFeed activity={activity} showActor />
+          </Card>
+        </div>
+      ) : (
+        <Card title="Recent activity">
+          <ActivityFeed activity={activity} showActor={false} />
+        </Card>
+      )}
     </>
+  );
+}
+
+/** Recent activity table; administrators also see who performed each action. */
+function ActivityFeed({
+  activity,
+  showActor,
+}: {
+  activity?: FeedEntry[];
+  showActor: boolean;
+}) {
+  if (!activity || activity.length === 0)
+    return <EmptyState title="No activity recorded yet" />;
+  return (
+    <table className="table">
+      <tbody>
+        {activity.slice(0, 8).map((log) => (
+          <tr key={log.id}>
+            <td title={log.event}>{activityLabel(log.event)}</td>
+            {showActor && <td className="muted">{log.user?.email}</td>}
+            <td className="muted">{formatDateTime(log.createdAt)}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+/** Ranked list of freelancers by contract count, with avatar and name. */
+function Leaderboard({ items }: { items: TopFreelancer[] }) {
+  if (items.length === 0)
+    return (
+      <p className="leaderboard__empty">No freelancers with contracts yet.</p>
+    );
+  return (
+    <ol className="leaderboard">
+      {items.map((freelancer, i) => (
+        <li key={`${freelancer.name}-${i}`} className="leaderboard__row">
+          <span className="leaderboard__rank">{i + 1}</span>
+          <Avatar url={freelancer.avatarUrl} name={freelancer.name} size={34} />
+          <span className="leaderboard__name">{freelancer.name}</span>
+          <span className="leaderboard__count">
+            {freelancer.contracts}{' '}
+            {freelancer.contracts === 1 ? 'contract' : 'contracts'}
+          </span>
+        </li>
+      ))}
+    </ol>
   );
 }
 
@@ -230,6 +277,13 @@ function CompanyCharts({ metrics }: { metrics: CompanyMetrics }) {
             { key: 'funded', label: 'Funded', color: CHART_COLORS[0] },
             { key: 'released', label: 'Released', color: CHART_COLORS[2] },
           ]}
+          format={formatCompact}
+        />
+      </Card>
+      <Card title="Payroll distributed per cycle">
+        <BarChart
+          data={metrics.payrollPerCycle}
+          color="var(--chart-2)"
           format={formatCompact}
         />
       </Card>

@@ -25,6 +25,13 @@ export interface FundingPoint {
   released: number;
 }
 
+/** A freelancer ranked by how many contracts they have taken on. */
+export interface TopFreelancer {
+  name: string;
+  avatarUrl: string | null;
+  contracts: number;
+}
+
 /** Platform-wide metrics for the administrator dashboard (GET /metrics/admin). */
 export interface AdminMetrics {
   totals: {
@@ -45,6 +52,8 @@ export interface AdminMetrics {
   /** Funded vs released USDC per month (escrow funding trend). */
   fundingTrend: FundingPoint[];
   escrowsByStatus: CategoryCount[];
+  /** Freelancers ranked by contract count (top few). */
+  topFreelancers: TopFreelancer[];
 }
 
 /** Company owner metrics (GET /metrics/summary when role = company). */
