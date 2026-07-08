@@ -34,11 +34,10 @@ export const NAV_BY_ROLE = {
     { to: '/notifications', label: 'Notifications', icon: Bell },
     { to: '/profile', label: 'Profile', icon: User },
   ],
+  // Admin is a supervisor, not an operator: it only observes (the Administration
+  // panel) and manages its own account. No contract/payroll/dispute action pages.
   administrator: [
     { to: '/', label: 'Home', icon: LayoutDashboard },
-    { to: '/contracts', label: 'Contracts', icon: FileText },
-    { to: '/payrolls', label: 'Payroll', icon: Banknote },
-    { to: '/disputes', label: 'Disputes', icon: Scale },
     { to: '/admin', label: 'Administration', icon: BarChart3 },
     { to: '/notifications', label: 'Notifications', icon: Bell },
     { to: '/profile', label: 'Profile', icon: User },

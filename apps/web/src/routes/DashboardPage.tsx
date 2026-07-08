@@ -48,6 +48,8 @@ export function DashboardPage() {
   const { data: metrics } = useQuery({
     queryKey: ['metrics', 'summary'],
     queryFn: async () => (await api.get<SummaryMetrics>('/metrics/summary')).data,
+    // Administrators have no personal summary (the endpoint is role-scoped).
+    enabled: user?.role !== 'administrator',
   });
 
   const active = contracts?.filter((c) => c.status === 'active') ?? [];
