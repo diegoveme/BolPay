@@ -39,6 +39,9 @@ export class MetricsService {
       activeContracts,
       liveEscrow,
       contractDates,
+      payrollDates,
+      fundedEscrows,
+      releaseTxns,
     ] = await Promise.all([
       this.prisma.user.groupBy({ by: ['role'], _count: { _all: true } }),
       this.prisma.contract.groupBy({ by: ['status'], _count: { _all: true } }),
@@ -54,12 +57,34 @@ export class MetricsService {
         _sum: { fundedAmount: true, releasedAmount: true },
       }),
       this.prisma.contract.findMany({ select: { createdAt: true } }),
+      this.prisma.payroll.findMany({ select: { createdAt: true } }),
+      this.prisma.escrow.findMany({
+        where: { fundedAmount: { not: null } },
+        select: { createdAt: true, fundedAmount: true },
+      }),
+      this.prisma.transaction.findMany({
+        where: { operation: { in: ['release', 'payroll_distribution'] } },
+        select: { createdAt: true, amount: true },
+      }),
     ]);
 
     const funded = num(escrowFunding._sum.fundedAmount);
     const released = num(escrowFunding._sum.releasedAmount);
     const inEscrow =
       num(liveEscrow._sum.fundedAmount) - num(liveEscrow._sum.releasedAmount);
+
+    // Funded (by escrow creation) vs released (by settlement tx), same months.
+    const fundedByMonth = bucketByMonth(
+      fundedEscrows.map((e) => ({ date: e.createdAt, value: num(e.fundedAmount) })),
+    );
+    const releasedByMonth = bucketByMonth(
+      releaseTxns.map((t) => ({ date: t.createdAt, value: num(t.amount) })),
+    );
+    const fundingTrend = fundedByMonth.map((point, i) => ({
+      label: point.label,
+      funded: point.value,
+      released: releasedByMonth[i].value,
+    }));
 
     return {
       totals: {
@@ -73,8 +98,12 @@ export class MetricsService {
       contractsPerMonth: bucketByMonth(
         contractDates.map((c) => ({ date: c.createdAt, value: 1 })),
       ),
+      payrollsPerMonth: bucketByMonth(
+        payrollDates.map((p) => ({ date: p.createdAt, value: 1 })),
+      ),
       payrollsByStatus: toCategories(payrollsByStatus, 'status'),
       escrowFunding: { funded, released },
+      fundingTrend,
       escrowsByStatus: toCategories(escrowsByStatus, 'status'),
     };
   }

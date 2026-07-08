@@ -18,6 +18,13 @@ export interface CategoryCount {
   value: number;
 }
 
+/** A month bucket with the funded and released USDC totals for that month. */
+export interface FundingPoint {
+  label: string;
+  funded: number;
+  released: number;
+}
+
 /** Platform-wide metrics for the administrator dashboard (GET /metrics/admin). */
 export interface AdminMetrics {
   totals: {
@@ -31,8 +38,12 @@ export interface AdminMetrics {
   contractsByStatus: CategoryCount[];
   /** Contracts created per month over the recent window. */
   contractsPerMonth: MetricPoint[];
+  /** Payrolls created per month, aligned to the same months as contracts. */
+  payrollsPerMonth: MetricPoint[];
   payrollsByStatus: CategoryCount[];
   escrowFunding: { funded: number; released: number };
+  /** Funded vs released USDC per month (escrow funding trend). */
+  fundingTrend: FundingPoint[];
   escrowsByStatus: CategoryCount[];
 }
 
