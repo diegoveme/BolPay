@@ -17,6 +17,14 @@ export function colorAt(i: number): string {
   return CHART_COLORS[i % CHART_COLORS.length];
 }
 
+/** A chart datum: a required label plus arbitrary keyed numeric series values. */
+export type Datum = { label: string };
+
+/** Read a numeric series value from a datum by key (0 when missing). */
+export function val(d: Datum, key: string): number {
+  return Number((d as Record<string, unknown>)[key]) || 0;
+}
+
 /** Humanize an enum key ("pending_acceptance" -> "Pending acceptance"). */
 export function humanize(key: string): string {
   const spaced = key.replace(/_/g, ' ');

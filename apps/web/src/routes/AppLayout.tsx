@@ -10,7 +10,8 @@ import { roleLabel, shortAddress } from '@/lib/format';
 import { Button } from '@/components/ui';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { TrustlineBanner } from '@/components/TrustlineBanner';
-import { NAV_BY_ROLE, VerifyEmailBanner } from './AppLayout.nav';
+import { NAV_BY_ROLE } from './AppLayout.nav';
+import { VerifyEmailBanner } from './VerifyEmailBanner';
 
 /**
  * Authenticated app shell: role-based sidebar navigation, top bar with wallet
@@ -68,13 +69,11 @@ export function AppLayout() {
           );
         })}
         <div className="sidebar__footer">
-          <p style={{ fontWeight: 650, color: '#fff' }}>
-            {user.name ?? user.email}
-          </p>
+          <p>{user.name ?? user.email}</p>
           <p>{roleLabel[user.role]}</p>
           <Button
             variant="ghost"
-            style={{ paddingLeft: 0, color: '#8fb1ff' }}
+            style={{ paddingLeft: 0, color: 'var(--primary)' }}
             onClick={() => {
               logout();
               navigate('/login');

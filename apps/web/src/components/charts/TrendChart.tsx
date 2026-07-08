@@ -3,13 +3,7 @@ import { scaleLinear } from 'd3-scale';
 import { area as d3area, curveMonotoneX, line as d3line } from 'd3-shape';
 import { SeriesLegend } from './ChartLegend';
 import type { Series } from './GroupedBarChart';
-import { niceTicks } from './theme';
-
-type Datum = { label: string };
-
-/** Read a numeric series value from a datum by key (0 when missing). */
-const val = (d: Datum, key: string): number =>
-  Number((d as Record<string, unknown>)[key]) || 0;
+import { type Datum, niceTicks, val } from './theme';
 
 /**
  * Multi-series trend chart: a soft-filled line per series over evenly-spaced
