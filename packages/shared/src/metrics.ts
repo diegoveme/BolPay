@@ -59,6 +59,8 @@ export interface CompanyMetrics {
   contractsByStatus: CategoryCount[];
   /** Amount distributed per payroll execution (most recent cycles). */
   payrollPerCycle: MetricPoint[];
+  /** Funded vs released USDC per month across the company's escrows. */
+  fundingTrend: FundingPoint[];
 }
 
 /** Freelancer metrics (GET /metrics/summary when role = freelancer). */

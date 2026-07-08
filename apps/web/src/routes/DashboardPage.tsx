@@ -26,7 +26,6 @@ import {
 import { Card, EmptyState, PageHeader, Spinner, Stat } from '@/components/ui';
 import {
   AreaChart,
-  BarChart,
   CHART_COLORS,
   DonutChart,
   GroupedBarChart,
@@ -224,10 +223,13 @@ function CompanyCharts({ metrics }: { metrics: CompanyMetrics }) {
           }
         />
       </Card>
-      <Card title="Payroll distributed per cycle">
-        <BarChart
-          data={metrics.payrollPerCycle}
-          color="var(--chart-2)"
+      <Card title="Funded vs released (USDC)">
+        <TrendChart
+          data={metrics.fundingTrend}
+          series={[
+            { key: 'funded', label: 'Funded', color: CHART_COLORS[0] },
+            { key: 'released', label: 'Released', color: CHART_COLORS[2] },
+          ]}
           format={formatCompact}
         />
       </Card>
@@ -271,7 +273,7 @@ function FixedEmployeeView({ metrics }: { metrics: FixedEmployeeMetrics }) {
         />
       </div>
       <Card title="Payments received (last 6 months)">
-        <BarChart
+        <AreaChart
           data={metrics.paymentsPerMonth}
           color="var(--chart-3)"
           format={formatCompact}

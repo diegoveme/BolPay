@@ -5,6 +5,7 @@ import type {
   CompanyMetrics,
   FixedEmployeeMetrics,
   FreelancerMetrics,
+  FundingPoint,
   MetricPoint,
   SummaryMetrics,
 } from '@bolpay/shared';
@@ -73,18 +74,7 @@ export class MetricsService {
     const inEscrow =
       num(liveEscrow._sum.fundedAmount) - num(liveEscrow._sum.releasedAmount);
 
-    // Funded (by escrow creation) vs released (by settlement tx), same months.
-    const fundedByMonth = bucketByMonth(
-      fundedEscrows.map((e) => ({ date: e.createdAt, value: num(e.fundedAmount) })),
-    );
-    const releasedByMonth = bucketByMonth(
-      releaseTxns.map((t) => ({ date: t.createdAt, value: num(t.amount) })),
-    );
-    const fundingTrend = fundedByMonth.map((point, i) => ({
-      label: point.label,
-      funded: point.value,
-      released: releasedByMonth[i].value,
-    }));
+    const fundingTrend = buildFundingTrend(fundedEscrows, releaseTxns);
 
     return {
       totals: {
@@ -129,35 +119,56 @@ export class MetricsService {
   private async companyMetrics(userId: string): Promise<CompanyMetrics> {
     const company = await this.requireProfileId('companyProfile', userId);
 
-    const [contractsByStatus, activeContracts, escrows, executions] =
-      await Promise.all([
-        this.prisma.contract.groupBy({
-          by: ['status'],
-          where: { companyId: company },
-          _count: { _all: true },
-        }),
-        this.prisma.contract.count({
-          where: { companyId: company, status: 'active' },
-        }),
-        this.prisma.escrow.findMany({
-          where: {
-            status: { in: LIVE_ESCROW },
-            OR: [
-              { contract: { companyId: company } },
-              { payroll: { companyId: company } },
-            ],
-          },
-          select: { fundedAmount: true, releasedAmount: true },
-        }),
-        this.prisma.payrollExecution.findMany({
-          where: {
-            payroll: { companyId: company },
-            status: { in: ['succeeded', 'partial'] },
-          },
-          select: { executedAt: true, totalAmount: true },
-          orderBy: { executedAt: 'asc' },
-        }),
-      ]);
+    const companyEscrows = {
+      OR: [
+        { contract: { companyId: company } },
+        { payroll: { companyId: company } },
+      ],
+    };
+
+    const [
+      contractsByStatus,
+      activeContracts,
+      escrows,
+      executions,
+      fundedEscrows,
+      releaseTxns,
+    ] = await Promise.all([
+      this.prisma.contract.groupBy({
+        by: ['status'],
+        where: { companyId: company },
+        _count: { _all: true },
+      }),
+      this.prisma.contract.count({
+        where: { companyId: company, status: 'active' },
+      }),
+      this.prisma.escrow.findMany({
+        where: { status: { in: LIVE_ESCROW }, ...companyEscrows },
+        select: { fundedAmount: true, releasedAmount: true },
+      }),
+      this.prisma.payrollExecution.findMany({
+        where: {
+          payroll: { companyId: company },
+          status: { in: ['succeeded', 'partial'] },
+        },
+        select: { executedAt: true, totalAmount: true },
+        orderBy: { executedAt: 'asc' },
+      }),
+      this.prisma.escrow.findMany({
+        where: { fundedAmount: { not: null }, ...companyEscrows },
+        select: { createdAt: true, fundedAmount: true },
+      }),
+      this.prisma.transaction.findMany({
+        where: {
+          operation: { in: ['release', 'payroll_distribution'] },
+          OR: [
+            { milestone: { contract: { companyId: company } } },
+            { payrollItem: { payroll: { companyId: company } } },
+          ],
+        },
+        select: { createdAt: true, amount: true },
+      }),
+    ]);
 
     const inEscrow = escrows.reduce(
       (sum, e) => sum + num(e.fundedAmount) - num(e.releasedAmount),
@@ -175,6 +186,7 @@ export class MetricsService {
         ),
       },
       contractsByStatus: toCategories(contractsByStatus, 'status'),
+      fundingTrend: buildFundingTrend(fundedEscrows, releaseTxns),
       payrollPerCycle: executions.slice(-8).map((e) => ({
         label: shortDate(e.executedAt),
         value: num(e.totalAmount),
@@ -300,6 +312,27 @@ function toCategories<K extends string>(
 /** Format a date as a short "Mon D" label for cycle axes. */
 function shortDate(date: Date): string {
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+/**
+ * Funded (by escrow creation) vs released (by settlement transaction) USDC,
+ * bucketed into the same months so the two series line up on the chart.
+ */
+function buildFundingTrend(
+  escrows: { createdAt: Date; fundedAmount: Prisma.Decimal | null }[],
+  releases: { createdAt: Date; amount: Prisma.Decimal }[],
+): FundingPoint[] {
+  const funded = bucketByMonth(
+    escrows.map((e) => ({ date: e.createdAt, value: num(e.fundedAmount) })),
+  );
+  const released = bucketByMonth(
+    releases.map((t) => ({ date: t.createdAt, value: num(t.amount) })),
+  );
+  return funded.map((point, i) => ({
+    label: point.label,
+    funded: point.value,
+    released: released[i].value,
+  }));
 }
 
 /**
