@@ -37,8 +37,10 @@ import {
 } from '@/components/ui';
 import { CHART_COLORS, DonutChart, TrendChart, humanize } from '@/components/charts';
 
+/** The four supervision tabs of the administration panel. */
 type Tab = 'metrics' | 'users' | 'escrows' | 'activity';
 
+/** Human-readable label shown on each tab button. */
 const TAB_LABELS: Record<Tab, string> = {
   metrics: 'Metrics',
   users: 'Users',
@@ -46,11 +48,13 @@ const TAB_LABELS: Record<Tab, string> = {
   activity: 'Activity',
 };
 
+/** Escrow row in the admin monitor, with its originating contract or payroll. */
 interface AdminEscrow extends Escrow {
   contract?: { id: string; title: string } | null;
   payroll?: { id: string; name: string } | null;
 }
 
+/** Activity-log row in the global feed, carrying the acting user. */
 interface AdminActivity extends ActivityLog {
   user?: { id: string; email: string; role: string };
 }

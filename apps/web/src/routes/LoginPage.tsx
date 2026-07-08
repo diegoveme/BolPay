@@ -208,9 +208,9 @@ export function LoginPage() {
               Continue with Pollar
             </Button>
             <p className="muted" style={{ fontSize: 13, marginTop: 14 }}>
-              Pollar creates and custodies your Stellar wallet and lets you sign in
-              with an email code, no seed phrases or extensions. Ideal if you have
-              no crypto.
+              This option creates and custodies your Stellar wallet and lets you
+              sign in with an email code, no seed phrases or extensions. Ideal if
+              you have no crypto.
             </p>
 
             <div className="login-divider">

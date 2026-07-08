@@ -1,7 +1,7 @@
 import { type CSSProperties } from 'react';
 import { scaleBand, scaleLinear } from 'd3-scale';
 import { SeriesLegend } from './ChartLegend';
-import { niceTicks } from './theme';
+import { type Datum, niceTicks, val } from './theme';
 
 /** One measured series within a grouped bar chart. */
 export interface Series {
@@ -10,12 +10,6 @@ export interface Series {
   label: string;
   color: string;
 }
-
-type Datum = { label: string };
-
-/** Read a numeric series value from a datum by key (0 when missing). */
-const val = (d: Datum, key: string): number =>
-  Number((d as Record<string, unknown>)[key]) || 0;
 
 /**
  * Grouped vertical bar chart: several series side by side per label (e.g.
