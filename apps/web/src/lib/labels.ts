@@ -118,6 +118,7 @@ const ACTIVITY_LABELS: Record<string, string> = {
   'payroll.created': 'Created a payroll',
   'payroll.funded': 'Funded a payroll',
   'payroll.executed': 'Ran the payroll',
+  'payroll.payment_received': 'Received a payroll payment',
   'user.status_changed': 'Changed an account status',
   'user.deleted': 'Deleted an account',
 };
