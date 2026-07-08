@@ -11,6 +11,7 @@ import type {
 import { useAuth } from '@/auth/AuthContext';
 import { api, apiErrorMessage } from '@/lib/api';
 import {
+  activityLabel,
   contractStatusLabel,
   formatCompact,
   formatDateTime,
@@ -112,7 +113,10 @@ function MetricsTab() {
       <div className="stats-grid">
         <Stat label="Total users" value={data.totals.users} />
         <Stat label="Active contracts" value={data.totals.activeContracts} />
-        <Stat label="USDC in escrow" value={formatUSDC(data.totals.usdcInEscrow)} />
+        <Stat
+          label="USDC locked in escrow"
+          value={formatUSDC(data.totals.usdcInEscrow)}
+        />
         <Stat
           label="Open disputes"
           value={data.totals.openDisputes}
@@ -419,7 +423,7 @@ function ActivityTab() {
             <tbody>
               {data.map((log) => (
                 <tr key={log.id}>
-                  <td className="mono">{log.event}</td>
+                  <td title={log.event}>{activityLabel(log.event)}</td>
                   <td className="muted">{log.user?.email}</td>
                   <td className="muted">{formatDateTime(log.createdAt)}</td>
                 </tr>
