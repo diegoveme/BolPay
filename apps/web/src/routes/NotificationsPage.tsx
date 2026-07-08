@@ -1,13 +1,21 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { X } from 'lucide-react';
+import {
+  AlertTriangle,
+  Banknote,
+  Bell,
+  Check,
+  FileCheck,
+  FileText,
+  Trash2,
+  type LucideIcon,
+} from 'lucide-react';
 import type { Notification } from '@bolpay/shared';
 import { api, apiErrorMessage } from '@/lib/api';
 import { formatDateTime } from '@/lib/format';
 import {
   Button,
-  Card,
   ConfirmModal,
   EmptyState,
   ErrorState,
@@ -25,9 +33,24 @@ function targetOf(notification: Notification): string | null {
   return null;
 }
 
+/** Icon and colour tone for a notification, grouped by its event family. */
+function notifStyle(type: string): { Icon: LucideIcon; tone: string } {
+  if (type.startsWith('dispute')) return { Icon: AlertTriangle, tone: 'danger' };
+  if (type.startsWith('deliverable')) return { Icon: FileCheck, tone: 'warning' };
+  if (type.startsWith('contract')) return { Icon: FileText, tone: 'info' };
+  if (
+    type.startsWith('payroll') ||
+    type.startsWith('payment') ||
+    type.startsWith('escrow')
+  ) {
+    return { Icon: Banknote, tone: 'success' };
+  }
+  return { Icon: Bell, tone: 'neutral' };
+}
+
 /**
- * Notifications inbox: lists all notifications, marks them read on click and
- * deep-links to the related dispute, contract, or payroll.
+ * Notifications inbox: a card list that marks items read on click, deep-links
+ * to the related dispute, contract or payroll, and lets you mark or delete each.
  */
 export function NotificationsPage() {
   const queryClient = useQueryClient();
@@ -61,68 +84,98 @@ export function NotificationsPage() {
     },
   });
 
+  const hasUnread = data?.some((n) => !n.read) ?? false;
+
   return (
     <>
       <PageHeader
         title="Notifications"
         subtitle="Deliverables, payments, disputes, and payroll in real time"
         actions={
-          <Button
-            variant="secondary"
-            loading={markAll.isPending}
-            onClick={() => markAll.mutate()}
-          >
-            Mark all as read
-          </Button>
+          hasUnread ? (
+            <Button
+              variant="secondary"
+              loading={markAll.isPending}
+              onClick={() => markAll.mutate()}
+            >
+              Mark all as read
+            </Button>
+          ) : undefined
         }
       />
-      <Card>
-        {isLoading ? (
-          <Spinner />
-        ) : error ? (
-          <ErrorState message={apiErrorMessage(error)} />
-        ) : !data || data.length === 0 ? (
-          <EmptyState title="No notifications" />
-        ) : (
-          <table className="table table--clickable">
-            <tbody>
-              {data.map((notification) => {
-                const target = targetOf(notification);
-                return (
-                  <tr
-                    key={notification.id}
-                    style={{ opacity: notification.read ? 0.6 : 1 }}
-                    onClick={() => {
-                      if (!notification.read) markRead.mutate(notification.id);
-                      if (target) navigate(target);
+
+      {isLoading ? (
+        <Spinner />
+      ) : error ? (
+        <ErrorState message={apiErrorMessage(error)} />
+      ) : !data || data.length === 0 ? (
+        <EmptyState
+          title="No notifications"
+          hint="Disputes, released payments, funded escrows and payroll runs will show up here."
+        />
+      ) : (
+        <div className="notif-list">
+          {data.map((notification) => {
+            const { Icon, tone } = notifStyle(notification.type);
+            const target = targetOf(notification);
+            return (
+              <div
+                key={notification.id}
+                className={`notif${notification.read ? '' : ' notif--unread'}${
+                  target ? ' notif--link' : ''
+                }`}
+                onClick={() => {
+                  if (!notification.read) markRead.mutate(notification.id);
+                  if (target) navigate(target);
+                }}
+              >
+                <span className={`notif__icon notif__icon--${tone}`}>
+                  <Icon size={18} aria-hidden />
+                </span>
+                <div className="notif__body">
+                  <p
+                    className="notif__msg"
+                    style={{ fontWeight: notification.read ? 400 : 600 }}
+                  >
+                    {notification.message}
+                  </p>
+                  <p className="notif__time">
+                    {formatDateTime(notification.createdAt)}
+                  </p>
+                </div>
+                <div className="notif__actions">
+                  {!notification.read && (
+                    <button
+                      type="button"
+                      className="notif__btn"
+                      title="Mark as read"
+                      aria-label="Mark as read"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        markRead.mutate(notification.id);
+                      }}
+                    >
+                      <Check size={16} aria-hidden />
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="notif__btn notif__btn--danger"
+                    title="Delete"
+                    aria-label="Delete notification"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setToDelete(notification);
                     }}
                   >
-                    <td style={{ width: 18 }}>{notification.read ? '' : '●'}</td>
-                    <td style={{ fontWeight: notification.read ? 400 : 600 }}>
-                      {notification.message}
-                    </td>
-                    <td className="muted" style={{ whiteSpace: 'nowrap' }}>
-                      {formatDateTime(notification.createdAt)}
-                    </td>
-                    <td style={{ width: 40, textAlign: 'right' }}>
-                      <Button
-                        variant="ghost"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setToDelete(notification);
-                        }}
-                        aria-label="Delete notification"
-                      >
-                        <X size={16} aria-hidden />
-                      </Button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        )}
-      </Card>
+                    <Trash2 size={16} aria-hidden />
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       {toDelete && (
         <ConfirmModal
