@@ -137,6 +137,9 @@ export function ContractDetailPage() {
   const isCompany = contract.company.user.id === user?.id;
   const isFreelancer = contract.freelancer.user.id === user?.id;
   const editable = ['draft', 'changes_requested'].includes(contract.status);
+  // When the milestone being approved carries an agreed dispute, approving
+  // settles that split (executed by the platform) instead of a full release.
+  const approveAgreed = approveFor?.disputes.find((d) => d.status === 'agreed');
 
   return (
     <>
@@ -278,7 +281,7 @@ export function ContractDetailPage() {
             (t) => t.operation === 'release',
           );
           const openDispute = milestone.disputes.find((d) =>
-            ['open', 'under_review', 'escalated'].includes(d.status),
+            ['open', 'under_review', 'escalated', 'agreed'].includes(d.status),
           );
           return (
             <div key={milestone.id} className="milestone">
@@ -333,6 +336,7 @@ export function ContractDetailPage() {
 
                   {(isCompany || isFreelancer) &&
                     contract.status === 'active' &&
+                    !openDispute &&
                     !['released', 'disputed'].includes(milestone.status) && (
                       <Button variant="ghost" onClick={() => setDisputeFor(milestone)}>
                         Open dispute
@@ -495,20 +499,43 @@ export function ContractDetailPage() {
         <ConfirmModal
           title="Approve milestone"
           danger
-          confirmLabel={`Release ${formatUSDC(approveFor.amount)}`}
+          confirmLabel={
+            approveAgreed
+              ? `Settle ${formatUSDC(approveAgreed.freelancerAmount ?? '0')}`
+              : `Release ${formatUSDC(approveFor.amount)}`
+          }
           loading={approveRelease.isPending}
           onClose={() => setApproveFor(null)}
           onConfirm={() => approveRelease.mutate(approveFor.id)}
         >
-          <p>
-            Approving <strong>{approveFor.title}</strong> releases{' '}
-            {formatUSDC(approveFor.amount)} from the escrow to the freelancer's
-            wallet.
-          </p>
-          <div className="modal__danger-note">
-            Your wallet will ask you to sign the <strong>approval</strong>; BolPay
-            then releases the funds to the freelancer. The payment is irreversible.
-          </div>
+          {approveAgreed ? (
+            <>
+              <p>
+                Approving <strong>{approveFor.title}</strong> settles the agreed
+                dispute split from the escrow:{' '}
+                {formatUSDC(approveAgreed.freelancerAmount ?? '0')} to the
+                freelancer and {formatUSDC(approveAgreed.companyAmount ?? '0')} back
+                to the company.
+              </p>
+              <div className="modal__danger-note">
+                BolPay executes the agreed resolution on-chain. The settlement is
+                irreversible.
+              </div>
+            </>
+          ) : (
+            <>
+              <p>
+                Approving <strong>{approveFor.title}</strong> releases{' '}
+                {formatUSDC(approveFor.amount)} from the escrow to the freelancer's
+                wallet.
+              </p>
+              <div className="modal__danger-note">
+                Your wallet will ask you to sign the <strong>approval</strong>;
+                BolPay then releases the funds to the freelancer. The payment is
+                irreversible.
+              </div>
+            </>
+          )}
         </ConfirmModal>
       )}
       {decision && (
