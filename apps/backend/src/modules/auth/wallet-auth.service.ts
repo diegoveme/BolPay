@@ -62,7 +62,7 @@ export class WalletAuthService {
     // enforce the size cap before inserting a new one.
     this.sweepExpired();
     if (this.pending.size >= MAX_PENDING) {
-      const oldest = this.pending.keys().next().value;
+      const [oldest] = this.pending.keys();
       if (oldest !== undefined) this.pending.delete(oldest);
     }
 
