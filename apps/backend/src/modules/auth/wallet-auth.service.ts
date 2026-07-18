@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { randomBytes } from 'crypto';
 import {
@@ -36,7 +36,6 @@ interface PendingChallenge {
  */
 @Injectable()
 export class WalletAuthService {
-  private readonly logger = new Logger(WalletAuthService.name);
   private readonly networkPassphrase: string;
   // address -> pending challenge. In-memory + short TTL is enough for a single
   // instance; move to Redis/DB if the API is ever horizontally scaled.
