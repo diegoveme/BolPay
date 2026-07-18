@@ -45,7 +45,9 @@ export class UpdateCompanyProfileDto {
   @MaxLength(120)
   industry?: string;
 
-  @ApiPropertyOptional({ example: 'Transparency, quality and on-time delivery.' })
+  @ApiPropertyOptional({
+    example: 'Transparency, quality and on-time delivery.',
+  })
   @IsOptional()
   @IsString()
   @MaxLength(1000)
@@ -79,7 +81,10 @@ export class UpdateFreelancerProfileDto {
   @MaxLength(2000)
   bio?: string;
 
-  @ApiPropertyOptional({ type: [String], example: ['React', 'NestJS', 'UI/UX'] })
+  @ApiPropertyOptional({
+    type: [String],
+    example: ['React', 'NestJS', 'UI/UX'],
+  })
   @IsOptional()
   @IsArray()
   @ArrayMaxSize(30)

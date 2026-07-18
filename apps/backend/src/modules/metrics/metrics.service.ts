@@ -216,9 +216,7 @@ export class MetricsService {
     };
   }
 
-  private async freelancerMetrics(
-    userId: string,
-  ): Promise<FreelancerMetrics> {
+  private async freelancerMetrics(userId: string): Promise<FreelancerMetrics> {
     const freelancer = await this.requireProfileId('freelancerProfile', userId);
 
     const [activeContracts, milestonesByStatus, pending, releases] =

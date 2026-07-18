@@ -18,7 +18,8 @@ import {
 export class LoginDto {
   @ApiPropertyOptional({
     example: 'maria@company.com',
-    description: 'Required only on first registration; returning users match by wallet',
+    description:
+      'Required only on first registration; returning users match by wallet',
   })
   @IsOptional()
   @IsEmail()

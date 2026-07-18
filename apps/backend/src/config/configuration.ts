@@ -31,7 +31,11 @@ export default () => ({
   // (email verification, invitations).
   webUrl: process.env.WEB_URL ?? 'http://localhost:5173',
   // Allowed browser origins for CORS. Comma-separated list; defaults to webUrl.
-  corsOrigins: (process.env.CORS_ORIGINS ?? process.env.WEB_URL ?? 'http://localhost:5173')
+  corsOrigins: (
+    process.env.CORS_ORIGINS ??
+    process.env.WEB_URL ??
+    'http://localhost:5173'
+  )
     .split(',')
     .map((origin) => origin.trim())
     .filter((origin) => origin.length > 0),

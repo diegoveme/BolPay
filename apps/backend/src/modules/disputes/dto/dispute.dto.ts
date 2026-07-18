@@ -27,7 +27,9 @@ export class OpenDisputeDto {
 
 /** Payload to add a file or comment as evidence on a dispute. */
 export class AddEvidenceDto {
-  @ApiPropertyOptional({ example: 'https://storage.example.com/screenshot.png' })
+  @ApiPropertyOptional({
+    example: 'https://storage.example.com/screenshot.png',
+  })
   @IsOptional()
   @IsUrl({ require_tld: false })
   @MaxLength(2000)

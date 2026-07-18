@@ -173,7 +173,11 @@ export class PayrollService {
       });
     }
     const total = sumAmounts(payroll.items);
-    return this.escrowService.prepareContractFund(escrow, companyAddress, total);
+    return this.escrowService.prepareContractFund(
+      escrow,
+      companyAddress,
+      total,
+    );
   }
 
   /** Non-custodial fund - step 2: record the fund and schedule the run. */

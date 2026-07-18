@@ -34,7 +34,8 @@ export class MailService {
     const pass = config.get<string>('mail.smtpPass') ?? '';
     // Gmail rewrites the From header to the authenticated address, so default to
     // it; MAIL_FROM lets you set a display name like "BolPay <addr@gmail.com>".
-    this.from = config.get<string>('mail.from') || user || 'no-reply@bolpay.app';
+    this.from =
+      config.get<string>('mail.from') || user || 'no-reply@bolpay.app';
     this.isDev = config.get<string>('nodeEnv') !== 'production';
 
     this.transporter =

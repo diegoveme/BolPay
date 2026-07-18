@@ -65,7 +65,7 @@ export class TrustlineService {
    * trustline needs 0.5 XLM reserve).
    */
   async prepare(address: string): Promise<{ unsignedXdr: string }> {
-    let account = await this.loadOrFund(address);
+    const account = await this.loadOrFund(address);
     const tx = new TransactionBuilder(account, {
       fee: BASE_FEE,
       networkPassphrase: this.networkPassphrase,
