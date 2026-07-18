@@ -3,7 +3,6 @@ import { ConfigService } from '@nestjs/config';
 import { randomBytes } from 'crypto';
 import {
   Account,
-  BASE_FEE,
   type FeeBumpTransaction,
   Keypair,
   Networks,
@@ -70,7 +69,11 @@ export class WalletAuthService {
     // Sequence is irrelevant: the tx is never submitted, only signed/verified.
     const account = new Account(stellarAddress, '0');
     const tx = new TransactionBuilder(account, {
-      fee: BASE_FEE,
+      // Zero fee: this challenge is only ever signed, never submitted, so it
+      // costs the user nothing. Declaring 0 makes wallets show "0 XLM" instead
+      // of a base fee the signer might mistake for a real charge, and it also
+      // guarantees the network would reject the tx if it were ever broadcast.
+      fee: '0',
       networkPassphrase: this.networkPassphrase,
     })
       .addOperation(Operation.manageData({ name: DATA_NAME, value: nonce }))
