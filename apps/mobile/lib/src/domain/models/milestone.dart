@@ -34,18 +34,36 @@ class MilestoneTransaction {
 
 /// Lightweight reference to a dispute attached to a milestone.
 class MilestoneDisputeRef {
-  const MilestoneDisputeRef({required this.id, required this.status});
+  const MilestoneDisputeRef({
+    required this.id,
+    required this.status,
+    this.freelancerAmount,
+    this.companyAmount,
+  });
 
   final String id;
   final String status;
 
+  /// Agreed split, present once the dispute reaches `agreed` or `resolved`.
+  final String? freelancerAmount;
+  final String? companyAmount;
+
+  /// A dispute still in play. `agreed` counts: the split is settled but the
+  /// milestone has to be delivered and approved before the escrow pays out.
   bool get isOpen =>
-      status == 'open' || status == 'under_review' || status == 'escalated';
+      status == 'open' ||
+      status == 'under_review' ||
+      status == 'escalated' ||
+      status == 'agreed';
+
+  bool get isAgreed => status == 'agreed';
 
   factory MilestoneDisputeRef.fromJson(Map<String, dynamic> json) {
     return MilestoneDisputeRef(
       id: (json['id'] ?? '').toString(),
       status: (json['status'] ?? '').toString(),
+      freelancerAmount: json['freelancerAmount']?.toString(),
+      companyAmount: json['companyAmount']?.toString(),
     );
   }
 }
@@ -94,6 +112,15 @@ class Milestone {
   MilestoneDisputeRef? get openDispute {
     for (final dispute in disputes) {
       if (dispute.isOpen) return dispute;
+    }
+    return null;
+  }
+
+  /// Dispute whose split both parties already agreed on. Approving this
+  /// milestone settles that split instead of releasing the full amount.
+  MilestoneDisputeRef? get agreedDispute {
+    for (final dispute in disputes) {
+      if (dispute.isAgreed) return dispute;
     }
     return null;
   }

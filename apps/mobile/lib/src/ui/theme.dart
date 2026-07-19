@@ -239,6 +239,7 @@ Tone statusTone(StatusKind kind, String status) {
       return switch (status) {
         'open' => Tone.danger,
         'under_review' || 'escalated' => Tone.warning,
+        'agreed' => Tone.info,
         'resolved' => Tone.success,
         'closed' => Tone.neutral,
         _ => Tone.neutral,
@@ -309,6 +310,7 @@ String statusLabel(StatusKind kind, String status) {
         'open' => 'Open',
         'under_review' => 'Under review',
         'escalated' => 'Escalated',
+        'agreed' => 'Agreement reached',
         'resolved' => 'Resolved',
         'closed' => 'Closed',
         _ => _capitalize(status),

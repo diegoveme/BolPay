@@ -102,27 +102,46 @@ class _DisputeDetailScreenState extends State<DisputeDetailScreen> {
     }
   }
 
-  /// Accept the standing proposal and execute the split on-chain. Confirmed
-  /// first because it moves the escrowed funds and cannot be undone.
+  /// Accept the standing proposal. A proposal that pays the freelancer does
+  /// NOT move money: the dispute becomes `agreed` and the milestone reopens so
+  /// the freelancer delivers and the company approves before the escrow pays
+  /// out. A pure refund to the company settles on-chain right away, so only
+  /// that branch warns about an irreversible transfer.
   Future<void> _accept(Dispute dispute) async {
     final toFreelancer = formatUsdc(dispute.proposalFreelancerAmount ?? '0');
     final toCompany = formatUsdc(dispute.proposalCompanyAmount ?? '0');
+    final paysFreelancer = dispute.proposalPaysFreelancer;
     final confirmed = await showConfirmSheet(
       context,
       title: 'Accept resolution',
-      body:
-          'Accepting executes the agreed split on the escrow: $toFreelancer to '
-          'the freelancer and $toCompany to the company.',
-      confirmLabel: 'Execute resolution',
+      body: paysFreelancer
+          ? 'You are accepting a split of $toFreelancer to the freelancer and '
+                '$toCompany to the company. No funds move yet: the milestone '
+                'reopens so the freelancer delivers the work and the company '
+                'approves it. The escrow releases these amounts on that '
+                'approval.'
+          : 'Accepting refunds $toCompany to the company on the escrow now. '
+                'The freelancer receives nothing for this milestone.',
+      confirmLabel: paysFreelancer ? 'Accept agreement' : 'Execute refund',
       danger: true,
-      dangerNote: 'This runs on-chain and cannot be undone.',
+      dangerNote: paysFreelancer
+          ? 'Once approved, the on-chain settlement cannot be undone.'
+          : 'This runs on-chain and cannot be undone.',
     );
     if (confirmed != true || !mounted) return;
 
     setState(() => _busy = true);
     try {
       await AppScope.read(context).disputes.accept(widget.disputeId);
-      if (mounted) showSuccessSnackBar(context, 'Dispute resolved.');
+      if (mounted) {
+        showSuccessSnackBar(
+          context,
+          paysFreelancer
+              ? 'Agreement locked in. The escrow settles once the delivery is '
+                    'approved.'
+              : 'Dispute resolved.',
+        );
+      }
       await _load();
     } catch (e) {
       if (mounted) showErrorSnackBar(context, e);
@@ -167,6 +186,17 @@ class _DisputeDetailScreenState extends State<DisputeDetailScreen> {
               ),
               const SizedBox(height: 16),
               DisputeReasonCard(dispute: dispute),
+              if (dispute.isAgreed) ...[
+                const SizedBox(height: 16),
+                DisputeAgreementCard(
+                  dispute: dispute,
+                  onViewContract: dispute.milestone?.contractId != null
+                      ? () => context.go(
+                          '/contracts/${dispute.milestone!.contractId}',
+                        )
+                      : null,
+                ),
+              ],
               if (dispute.isResolved) ...[
                 const SizedBox(height: 16),
                 DisputeResolutionCard(dispute: dispute),

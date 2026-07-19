@@ -55,12 +55,16 @@ class MilestoneTile extends StatelessWidget {
     final canUpload =
         isFreelancer && contractActive && milestone.acceptsDeliverables;
     final canReview = isCompany && milestone.isReviewable;
+    final openDispute = milestone.openDispute;
+    // An agreed dispute leaves the milestone out of the `disputed` status
+    // (it reopens for delivery), so guard on the dispute itself: there is
+    // already one in play and the backend rejects a second one.
     final canDispute =
         (isCompany || isFreelancer) &&
         contractActive &&
         !milestone.isReleased &&
-        !milestone.isDisputed;
-    final openDispute = milestone.openDispute;
+        !milestone.isDisputed &&
+        openDispute == null;
     final releaseTx = _releaseTx;
 
     return Container(
