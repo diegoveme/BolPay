@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/api_config.dart';
 import '../../../core/formatters.dart';
 import '../../../domain/models/payroll.dart';
 import '../../../ui/theme.dart';
 import '../../../ui/widgets/app_card.dart';
+import '../../../ui/widgets/feedback.dart';
 import '../../../ui/widgets/status_badge.dart';
 
 /// Execution history for a payroll: an empty-state note or one tile per
@@ -85,17 +87,51 @@ class _ExecutionTile extends StatelessWidget {
           if (execution.transactions.isNotEmpty) ...[
             const SizedBox(height: 8),
             for (final tx in execution.transactions)
-              Padding(
-                padding: const EdgeInsets.only(top: 2),
-                child: Text(
-                  '${formatUsdc(tx.amount)} → '
-                  '${tx.txHash == null ? emptyPlaceholder : shortAddress(tx.txHash!)}'
-                  '${tx.isSimulated ? ' (simulated)' : ''}',
-                  style: TextStyle(fontSize: 12.5, color: colors.textMuted),
-                ),
-              ),
+              _TransactionLine(transaction: tx),
           ],
         ],
+      ),
+    );
+  }
+}
+
+/// One transfer inside an execution. A real hash copies its stellar.expert
+/// link (the app has no in-app browser, same as the milestone payment line);
+/// a simulated one renders as plain text.
+class _TransactionLine extends StatelessWidget {
+  const _TransactionLine({required this.transaction});
+
+  final PayrollTransaction transaction;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = AppColors.of(context);
+    final hash = transaction.txHash;
+    final explorerUrl = ApiConfig.explorerTxUrl(hash);
+    final label =
+        '${formatUsdc(transaction.amount)} → '
+        '${hash == null ? emptyPlaceholder : shortAddress(hash)}'
+        '${transaction.isSimulated ? ' (simulated)' : ''}';
+    final style = TextStyle(
+      fontSize: 12.5,
+      color: explorerUrl == null ? colors.textMuted : colors.primary,
+    );
+
+    if (explorerUrl == null) {
+      return Padding(
+        padding: const EdgeInsets.only(top: 2),
+        child: Text(label, style: style),
+      );
+    }
+    return InkWell(
+      onTap: () => copyToClipboard(
+        context,
+        explorerUrl,
+        message: 'Explorer link copied to clipboard',
+      ),
+      child: Padding(
+        padding: const EdgeInsets.only(top: 2),
+        child: Text(label, style: style),
       ),
     );
   }

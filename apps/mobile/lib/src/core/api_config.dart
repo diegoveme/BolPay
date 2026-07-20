@@ -16,4 +16,17 @@ class ApiConfig {
     'STELLAR_NETWORK',
     defaultValue: 'testnet',
   );
+
+  /// stellar.expert link for a transaction hash. Simulated-mode hashes start
+  /// with `SIM` and have no on-chain counterpart, so they get no link.
+  static String? explorerTxUrl(String? txHash) {
+    if (txHash == null || txHash.isEmpty || txHash.startsWith('SIM')) {
+      return null;
+    }
+    const network =
+        stellarNetwork == 'public' || stellarNetwork == 'mainnet'
+        ? 'public'
+        : 'testnet';
+    return 'https://stellar.expert/explorer/$network/tx/$txHash';
+  }
 }

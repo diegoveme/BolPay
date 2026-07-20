@@ -281,14 +281,7 @@ class _ReleaseTxLine extends StatelessWidget {
 
   bool get _isSimulated => txHash.startsWith('SIM');
 
-  String get _explorerUrl {
-    const network =
-        ApiConfig.stellarNetwork == 'public' ||
-            ApiConfig.stellarNetwork == 'mainnet'
-        ? 'public'
-        : 'testnet';
-    return 'https://stellar.expert/explorer/$network/tx/$txHash';
-  }
+  String get _explorerUrl => ApiConfig.explorerTxUrl(txHash)!;
 
   @override
   Widget build(BuildContext context) {
