@@ -2,14 +2,17 @@
 /// (GET /users/freelancers): profile summary plus the owning user.
 class FreelancerOption {
   const FreelancerOption({
-    required this.userId,
+    required this.profileId,
     required this.email,
     this.displayName,
     this.headline,
     this.avatarUrl,
   });
 
-  final String userId;
+  /// FreelancerProfile id, NOT the user id. This is what POST /contracts
+  /// expects as `freelancerId`; sending the user id returns "Freelancer not
+  /// found" (web parity: the web select uses this same id).
+  final String profileId;
   final String email;
   final String? displayName;
   final String? headline;
@@ -25,7 +28,7 @@ class FreelancerOption {
   factory FreelancerOption.fromJson(Map<String, dynamic> json) {
     final user = json['user'] as Map<String, dynamic>?;
     return FreelancerOption(
-      userId: (user?['id'] ?? json['userId'] ?? '').toString(),
+      profileId: (json['id'] ?? '').toString(),
       email: (user?['email'] ?? json['email'] ?? '').toString(),
       displayName: json['displayName'] as String?,
       headline: json['headline'] as String?,

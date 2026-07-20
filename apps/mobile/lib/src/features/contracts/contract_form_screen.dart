@@ -230,7 +230,7 @@ class _ContractFormScreenState extends State<ContractFormScreen> {
                     return [
                       for (final option in options)
                         AsyncSelectOption(
-                          value: option.userId,
+                          value: option.profileId,
                           label: option.label,
                           sublabel: option.headline,
                         ),
