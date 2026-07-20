@@ -17,12 +17,13 @@ import type {
 /**
  * Real escrow operations against the Trustless Work REST API (Stellar testnet).
  *
- * Custody model: BolPay operates the escrow with a platform-controlled testnet
- * account that holds every escrow role (approver, releaseSigner, platform,
- * disputeResolver, funding signer). Milestone receivers are the freelancers'
- * Pollar-managed wallets, so released funds land directly in their wallets.
- * Each TW endpoint returns an unsigned XDR which we sign with the platform key
- * and submit via /helper/send-transaction.
+ * Custody model: BolPay never holds the funds. They sit in the Soroban escrow
+ * and can only ever move to the milestone receivers, which are fixed at deploy
+ * time. What the platform does hold is the execution roles that the caller does
+ * not assign (see deployMultiRelease), so it can trigger a release but cannot
+ * redirect it or keep any of it. Each TW endpoint returns an unsigned XDR which
+ * we sign with the platform key and submit via /helper/send-transaction, except
+ * the funding one, which the company signs with its own wallet.
  */
 @Injectable()
 export class TrustlessWorkAdapter implements EscrowChainAdapter {
@@ -63,15 +64,19 @@ export class TrustlessWorkAdapter implements EscrowChainAdapter {
       engagementId: params.engagementId,
       title: params.title,
       description: params.description || params.title,
+      // Every role the caller leaves out falls back to the platform account.
+      // Contract escrows name the company as approver and the freelancer as
+      // service provider; payroll escrows name none, so the platform holds all
+      // of them. Either way the platform ends up as releaseSigner and
+      // disputeResolver, which is what lets it execute a release or settle an
+      // agreed split on the parties' behalf. That is execution power, not
+      // custody: the receivers are locked in below, so the funds can only reach
+      // the addresses agreed at deploy time.
       roles: {
-        // Non-custodial: the company approves/releases, the freelancer delivers.
-        // The platform is only the (fund-less) dispute arbiter + fee address.
         approver: params.roles?.approver ?? this.platformAddress,
         serviceProvider: params.roles?.serviceProvider ?? this.platformAddress,
         platformAddress: this.platformAddress,
         releaseSigner: params.roles?.releaseSigner ?? this.platformAddress,
-        // Dispute resolution is mutual between the parties, executed by the
-        // company - the platform is NOT an arbiter.
         disputeResolver: params.roles?.disputeResolver ?? this.platformAddress,
       },
       platformFee: 0,
