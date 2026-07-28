@@ -62,7 +62,12 @@ class DisputeMilestone {
 /// split and the OTHER party accepts it (or counter-proposes) before it runs
 /// on-chain. `proposedById != null` means a proposal is on the table.
 ///
-/// Statuses: `open`, `under_review`, `resolved`, `closed`.
+/// Statuses: `open`, `under_review`, `escalated`, `agreed`, `resolved`,
+/// `closed`. Accepting a proposal that pays the freelancer does NOT settle:
+/// the dispute becomes `agreed` and the milestone reopens so the freelancer
+/// delivers and the company approves before any funds move. A pure refund to
+/// the company goes straight to `resolved`.
+///
 /// Resolution outcomes: `release_to_freelancer`, `refund_to_company`,
 /// `split`.
 class Dispute {
@@ -117,6 +122,15 @@ class Dispute {
 
   bool get isOpen => openStates.contains(status);
   bool get isResolved => status == 'resolved';
+
+  /// Split agreed by both parties, pending delivery and approval. No funds
+  /// have moved yet.
+  bool get isAgreed => status == 'agreed';
+
+  /// Whether the standing proposal pays the freelancer anything. If it does,
+  /// accepting it locks in the agreement instead of settling on the spot.
+  bool get proposalPaysFreelancer =>
+      (double.tryParse(proposalFreelancerAmount ?? '0') ?? 0) > 0;
 
   /// Whether a resolution proposal is currently on the table.
   bool get hasProposal =>

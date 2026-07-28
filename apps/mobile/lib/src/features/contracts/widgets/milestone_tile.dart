@@ -55,12 +55,16 @@ class MilestoneTile extends StatelessWidget {
     final canUpload =
         isFreelancer && contractActive && milestone.acceptsDeliverables;
     final canReview = isCompany && milestone.isReviewable;
+    final openDispute = milestone.openDispute;
+    // An agreed dispute leaves the milestone out of the `disputed` status
+    // (it reopens for delivery), so guard on the dispute itself: there is
+    // already one in play and the backend rejects a second one.
     final canDispute =
         (isCompany || isFreelancer) &&
         contractActive &&
         !milestone.isReleased &&
-        !milestone.isDisputed;
-    final openDispute = milestone.openDispute;
+        !milestone.isDisputed &&
+        openDispute == null;
     final releaseTx = _releaseTx;
 
     return Container(
@@ -277,14 +281,7 @@ class _ReleaseTxLine extends StatelessWidget {
 
   bool get _isSimulated => txHash.startsWith('SIM');
 
-  String get _explorerUrl {
-    const network =
-        ApiConfig.stellarNetwork == 'public' ||
-            ApiConfig.stellarNetwork == 'mainnet'
-        ? 'public'
-        : 'testnet';
-    return 'https://stellar.expert/explorer/$network/tx/$txHash';
-  }
+  String get _explorerUrl => ApiConfig.explorerTxUrl(txHash)!;
 
   @override
   Widget build(BuildContext context) {

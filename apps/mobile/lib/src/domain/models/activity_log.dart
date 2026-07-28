@@ -45,6 +45,7 @@ String activityLabel(String event) {
     'deliverable.submitted' => 'Submitted a deliverable',
     'dispute.opened' => 'Opened a dispute',
     'dispute.escalated' => 'Escalated a dispute',
+    'dispute.agreed' => 'Reached a dispute agreement',
     'dispute.resolved' => 'Resolved a dispute',
     'dispute.evidence_added' => 'Added evidence to a dispute',
     'payroll.created' => 'Created a payroll',

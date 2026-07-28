@@ -46,17 +46,11 @@ class PayrollItem {
 
 /// One on-chain transfer inside a payroll execution.
 class PayrollTransaction {
-  const PayrollTransaction({
-    required this.id,
-    this.amount,
-    this.txHash,
-    this.recipientAddress,
-  });
+  const PayrollTransaction({required this.id, this.amount, this.txHash});
 
   final String id;
   final String? amount;
   final String? txHash;
-  final String? recipientAddress;
 
   /// Simulated-mode hashes start with `SIM` and have no explorer link.
   bool get isSimulated => (txHash ?? '').startsWith('SIM');
@@ -65,8 +59,9 @@ class PayrollTransaction {
     return PayrollTransaction(
       id: (json['id'] ?? '').toString(),
       amount: json['amount']?.toString(),
-      txHash: json['txHash']?.toString(),
-      recipientAddress: json['recipientAddress'] as String?,
+      // The backend serializes the hash as `stellarHash` (Prisma column);
+      // reading only `txHash` left every payroll transaction without one.
+      txHash: (json['txHash'] ?? json['stellarHash'])?.toString(),
     );
   }
 }

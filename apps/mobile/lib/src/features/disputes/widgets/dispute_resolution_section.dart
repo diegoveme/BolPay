@@ -48,10 +48,89 @@ class DisputeResolutionCard extends StatelessWidget {
   }
 }
 
+/// Shown while a dispute is `agreed`: both parties settled on a split, but no
+/// funds have moved. The freelancer still has to deliver on the contract and
+/// the company to approve it before the escrow pays out those amounts.
+class DisputeAgreementCard extends StatelessWidget {
+  const DisputeAgreementCard({
+    super.key,
+    required this.dispute,
+    this.onViewContract,
+  });
+
+  final Dispute dispute;
+  final VoidCallback? onViewContract;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = AppColors.of(context);
+    return AppCard(
+      title: 'Agreement reached',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'You agreed on the split, but no funds have moved yet. The '
+            'freelancer delivers the work on the contract; once the company '
+            'approves it, the escrow releases the agreed amounts.',
+            style: TextStyle(fontSize: 13.5, color: colors.textMuted),
+          ),
+          const SizedBox(height: 12),
+          DetailRow(
+            label: 'To the freelancer',
+            value: formatUsdc(dispute.freelancerAmount ?? '0'),
+            mono: true,
+          ),
+          DetailRow(
+            label: 'To the company',
+            value: formatUsdc(dispute.companyAmount ?? '0'),
+            mono: true,
+          ),
+          if (dispute.resolution != null && dispute.resolution!.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Text(
+              dispute.resolution!,
+              style: TextStyle(fontSize: 14, height: 1.5, color: colors.text),
+            ),
+          ],
+          if (onViewContract != null) ...[
+            const SizedBox(height: 12),
+            OutlinedButton(
+              onPressed: onViewContract,
+              child: const Text('Go to the contract'),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// Explains the standing proposal to whoever is looking at it. A proposal that
+/// pays the freelancer does not settle on accept (it locks in the agreement and
+/// reopens the milestone); a pure refund to the company runs right away.
+String _proposalSummary(Dispute dispute, bool isProposer) {
+  final other = dispute.proposedByEmail ?? 'The other party';
+  if (isProposer) {
+    return dispute.proposalPaysFreelancer
+        ? 'You proposed this split. Once the other party accepts, the '
+              'freelancer delivers the work and the company approves it before '
+              'the escrow pays out. You can change it below.'
+        : 'You proposed this refund. It runs on the escrow as soon as the '
+              'other party accepts. You can change it below.';
+  }
+  return dispute.proposalPaysFreelancer
+      ? '$other proposed this split. Accept it to lock it in: the freelancer '
+            'then delivers and the company approves before any funds move. Or '
+            'counter with your own.'
+      : '$other proposed this refund. Accept it to run it on the escrow now, '
+            'or counter with your own.';
+}
+
 /// Mutual resolution flow shown while a dispute is open. With no standing
 /// proposal, either party can propose a split. Once a proposal exists it is
-/// shown here; the party that did NOT make it can accept (executing it on the
-/// escrow) or counter-propose, and the proposer can change it.
+/// shown here; the party that did NOT make it can accept or counter-propose,
+/// and the proposer can change it.
 class DisputeNegotiationCard extends StatelessWidget {
   const DisputeNegotiationCard({
     super.key,
@@ -102,12 +181,7 @@ class DisputeNegotiationCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            isProposer
-                ? 'You proposed this split. It runs on the escrow once the '
-                      'other party accepts. You can change it below.'
-                : '${dispute.proposedByEmail ?? 'The other party'} proposed '
-                      'this split. Accept it to execute on the escrow, or '
-                      'counter with your own.',
+            _proposalSummary(dispute, isProposer),
             style: TextStyle(fontSize: 13.5, color: colors.textMuted),
           ),
           const SizedBox(height: 12),
@@ -133,7 +207,11 @@ class DisputeNegotiationCard extends StatelessWidget {
           if (!isProposer) ...[
             FilledButton(
               onPressed: busy ? null : onAccept,
-              child: const Text('Accept and execute'),
+              child: Text(
+                dispute.proposalPaysFreelancer
+                    ? 'Accept agreement'
+                    : 'Accept and refund',
+              ),
             ),
             const SizedBox(height: 8),
           ],

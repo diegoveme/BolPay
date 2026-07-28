@@ -126,17 +126,30 @@ class _ContractDetailScreenState extends State<ContractDetailScreen> {
 
   Future<void> _approve(Milestone milestone) async {
     final amount = formatUsdc(milestone.amount);
+    // With an agreed dispute on the milestone, approving settles the split
+    // both parties signed off on, not the full milestone amount.
+    final agreed = milestone.agreedDispute;
+    final toFreelancer = formatUsdc(agreed?.freelancerAmount ?? '0');
+    final toCompany = formatUsdc(agreed?.companyAmount ?? '0');
     final confirmed = await showConfirmSheet(
       context,
       title: 'Approve milestone',
-      body:
-          'Approving ${milestone.title ?? 'this milestone'} releases '
-          '$amount from the escrow to the freelancer\'s wallet.',
-      confirmLabel: 'Release $amount',
+      body: agreed != null
+          ? 'Approving ${milestone.title ?? 'this milestone'} settles the '
+                'agreed dispute split from the escrow: $toFreelancer to the '
+                'freelancer and $toCompany back to the company.'
+          : 'Approving ${milestone.title ?? 'this milestone'} releases '
+                '$amount from the escrow to the freelancer\'s wallet.',
+      confirmLabel: agreed != null
+          ? 'Settle $toFreelancer'
+          : 'Release $amount',
       danger: true,
-      dangerNote:
-          'Your wallet will ask you to sign the approval; BolPay then '
-          'releases the funds to the freelancer. The payment is irreversible.',
+      dangerNote: agreed != null
+          ? 'BolPay executes the agreed resolution on-chain. The settlement '
+                'is irreversible.'
+          : 'Your wallet will ask you to sign the approval; BolPay then '
+                'releases the funds to the freelancer. The payment is '
+                'irreversible.',
     );
     if (confirmed != true || !mounted) return;
     final repo = AppScope.read(context).milestones;
