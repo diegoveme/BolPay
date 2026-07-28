@@ -1,9 +1,8 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { randomBytes } from 'crypto';
 import {
   Account,
-  BASE_FEE,
   type FeeBumpTransaction,
   Keypair,
   Networks,
@@ -37,7 +36,6 @@ interface PendingChallenge {
  */
 @Injectable()
 export class WalletAuthService {
-  private readonly logger = new Logger(WalletAuthService.name);
   private readonly networkPassphrase: string;
   // address -> pending challenge. In-memory + short TTL is enough for a single
   // instance; move to Redis/DB if the API is ever horizontally scaled.
@@ -62,7 +60,7 @@ export class WalletAuthService {
     // enforce the size cap before inserting a new one.
     this.sweepExpired();
     if (this.pending.size >= MAX_PENDING) {
-      const oldest = this.pending.keys().next().value;
+      const [oldest] = this.pending.keys();
       if (oldest !== undefined) this.pending.delete(oldest);
     }
 
@@ -70,7 +68,11 @@ export class WalletAuthService {
     // Sequence is irrelevant: the tx is never submitted, only signed/verified.
     const account = new Account(stellarAddress, '0');
     const tx = new TransactionBuilder(account, {
-      fee: BASE_FEE,
+      // Zero fee: this challenge is only ever signed, never submitted, so it
+      // costs the user nothing. Declaring 0 makes wallets show "0 XLM" instead
+      // of a base fee the signer might mistake for a real charge, and it also
+      // guarantees the network would reject the tx if it were ever broadcast.
+      fee: '0',
       networkPassphrase: this.networkPassphrase,
     })
       .addOperation(Operation.manageData({ name: DATA_NAME, value: nonce }))
