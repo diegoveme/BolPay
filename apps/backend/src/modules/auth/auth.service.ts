@@ -82,7 +82,9 @@ export class AuthService {
     let user = await this.prisma.user.findFirst({
       where: {
         OR: [
-          ...(dto.pollarWalletId ? [{ pollarWalletId: dto.pollarWalletId }] : []),
+          ...(dto.pollarWalletId
+            ? [{ pollarWalletId: dto.pollarWalletId }]
+            : []),
           { stellarAddress: dto.stellarAddress },
         ],
       },
@@ -116,7 +118,9 @@ export class AuthService {
     } else {
       // First-time account: we need an email and a role.
       if (!email) {
-        throw new BadRequestException('email is required to create your account');
+        throw new BadRequestException(
+          'email is required to create your account',
+        );
       }
       user = await this.register(email, dto);
     }

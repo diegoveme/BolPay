@@ -24,7 +24,9 @@ export class DisputesController {
 
   /** Step 1: the opening party gets the dispute XDR to sign with its wallet. */
   @Post('prepare')
-  @ApiOperation({ summary: 'Get the dispute transaction for the party to sign' })
+  @ApiOperation({
+    summary: 'Get the dispute transaction for the party to sign',
+  })
   prepareOpen(@CurrentUser() user: AuthUser, @Body() dto: OpenDisputeDto) {
     return this.disputesService.prepareOpen(user, dto);
   }
@@ -80,7 +82,7 @@ export class DisputesController {
   @Post(':id/accept')
   @ApiOperation({
     summary:
-      'Accept the other party\'s proposal and execute the agreed split on-chain',
+      "Accept the other party's proposal and execute the agreed split on-chain",
   })
   accept(
     @Param('id', ParseUUIDPipe) id: string,

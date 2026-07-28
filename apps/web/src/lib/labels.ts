@@ -66,6 +66,7 @@ export const disputeStatusLabel: Record<DisputeStatus, string> = {
   open: 'Open',
   under_review: 'Under review',
   escalated: 'Escalated',
+  agreed: 'Agreement reached',
   resolved: 'Resolved',
   closed: 'Closed',
 };
@@ -75,6 +76,7 @@ export const disputeStatusTone: Record<DisputeStatus, string> = {
   open: 'danger',
   under_review: 'warning',
   escalated: 'warning',
+  agreed: 'info',
   resolved: 'success',
   closed: 'neutral',
 };
@@ -114,6 +116,7 @@ const ACTIVITY_LABELS: Record<string, string> = {
   'payment.released': 'Released a payment',
   'dispute.opened': 'Opened a dispute',
   'dispute.escalated': 'Escalated a dispute',
+  'dispute.agreed': 'Reached a dispute agreement',
   'dispute.resolved': 'Resolved a dispute',
   'payroll.created': 'Created a payroll',
   'payroll.funded': 'Funded a payroll',

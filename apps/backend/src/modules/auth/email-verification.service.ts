@@ -1,6 +1,11 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { createHmac, randomInt, randomUUID, timingSafeEqual } from 'node:crypto';
+import {
+  createHmac,
+  randomInt,
+  randomUUID,
+  timingSafeEqual,
+} from 'node:crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MailService } from '../mail/mail.service';
 
@@ -135,11 +140,17 @@ export class EmailVerificationService {
   /** HMAC-SHA256 of the code keyed by the server secret and bound to the email. */
   private hashCode(email: string, code: string): string {
     const secret = this.config.get<string>('jwt.secret') ?? '';
-    return createHmac('sha256', secret).update(`${email}:${code}`).digest('hex');
+    return createHmac('sha256', secret)
+      .update(`${email}:${code}`)
+      .digest('hex');
   }
 
   /** Constant-time comparison of a candidate code against the stored hash. */
-  private codeMatches(storedHash: string, email: string, code: string): boolean {
+  private codeMatches(
+    storedHash: string,
+    email: string,
+    code: string,
+  ): boolean {
     const candidate = this.hashCode(email, code);
     const a = Buffer.from(storedHash);
     const b = Buffer.from(candidate);

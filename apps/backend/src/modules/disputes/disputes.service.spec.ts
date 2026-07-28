@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/no-unsafe-assignment -- jest asymmetric matchers are typed as any */
+/** Unit tests for DisputesService: mutual propose/accept resolution flow. */
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { Prisma } from '@prisma/client';
@@ -65,6 +67,7 @@ describe('DisputesService', () => {
   const prisma = {
     dispute: {
       findUnique: jest.fn(),
+      findFirst: jest.fn(),
       update: jest.fn(),
       updateMany: jest.fn(),
       findMany: jest.fn(),
@@ -74,6 +77,7 @@ describe('DisputesService', () => {
       findMany: jest.fn(),
       update: jest.fn(),
     },
+    deliverable: { count: jest.fn() },
     user: { findMany: jest.fn().mockResolvedValue([]) },
     contract: { update: jest.fn() },
     disputeEvidence: { create: jest.fn() },
@@ -90,6 +94,8 @@ describe('DisputesService', () => {
     escrow.resolveMilestoneDispute.mockResolvedValue('TX2');
     // Atomic resolve claim succeeds by default.
     prisma.dispute.updateMany.mockResolvedValue({ count: 1 });
+    // A deliverable already exists by default (milestone reopens to 'submitted').
+    prisma.deliverable.count.mockResolvedValue(1);
     prisma.user.findMany.mockResolvedValue([]);
     prisma.$transaction.mockResolvedValue([
       disputeFixture({ status: 'resolved' }),
@@ -156,15 +162,62 @@ describe('DisputesService', () => {
   });
 
   it('accept: the proposer cannot accept their own proposal (mutual)', async () => {
-    prisma.dispute.findUnique.mockResolvedValue(disputeFixture(companyProposal));
+    prisma.dispute.findUnique.mockResolvedValue(
+      disputeFixture(companyProposal),
+    );
     await expect(service.accept('dp1', company)).rejects.toThrow(
       ForbiddenException,
     );
     expect(escrow.resolveMilestoneDispute).not.toHaveBeenCalled();
   });
 
-  it('accept: the other party executes the agreed distribution on-chain', async () => {
-    prisma.dispute.findUnique.mockResolvedValue(disputeFixture(companyProposal));
+  it('accept: a split that pays the freelancer is agreed, not paid yet', async () => {
+    prisma.dispute.findUnique.mockResolvedValue(
+      disputeFixture(companyProposal),
+    );
+
+    await service.accept('dp1', freelancer);
+
+    // No money moves on accept: the split is only locked in.
+    expect(escrow.resolveMilestoneDispute).not.toHaveBeenCalled();
+    expect(prisma.dispute.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ status: 'agreed' }),
+      }),
+    );
+    // A deliverable already exists, so the milestone reopens straight to review.
+    expect(prisma.milestone.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ status: 'submitted' }),
+      }),
+    );
+  });
+
+  it('accept: with no deliverable yet, the milestone reopens to pending', async () => {
+    prisma.dispute.findUnique.mockResolvedValue(
+      disputeFixture(companyProposal),
+    );
+    prisma.deliverable.count.mockResolvedValue(0);
+
+    await service.accept('dp1', freelancer);
+
+    expect(prisma.milestone.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ status: 'pending' }),
+      }),
+    );
+  });
+
+  it('accept: a full refund to the company settles immediately', async () => {
+    const refundProposal = {
+      status: 'under_review',
+      proposedById: 'company-user',
+      proposalOutcome: 'refund_to_company',
+      proposalFreelancerAmount: new Prisma.Decimal('0'),
+      proposalCompanyAmount: new Prisma.Decimal('500'),
+      proposalNote: null,
+    };
+    prisma.dispute.findUnique.mockResolvedValue(disputeFixture(refundProposal));
 
     await service.accept('dp1', freelancer);
 
@@ -172,9 +225,49 @@ describe('DisputesService', () => {
       expect.objectContaining({ id: 'e1' }),
       expect.objectContaining({ id: 'm1' }),
       expect.objectContaining({
-        freelancerAmount: new Prisma.Decimal('500'),
-        companyAmount: new Prisma.Decimal('0'),
+        freelancerAmount: new Prisma.Decimal('0'),
+        companyAmount: new Prisma.Decimal('500'),
       }),
     );
+    expect(prisma.milestone.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ status: 'released' }),
+      }),
+    );
+  });
+
+  it('settleAgreedForMilestone: runs the agreed split when the company approves', async () => {
+    prisma.dispute.findFirst.mockResolvedValue(
+      disputeFixture({
+        status: 'agreed',
+        proposedById: 'company-user',
+        proposalOutcome: 'split',
+        proposalNote: 'agreed split',
+        outcome: 'split',
+        freelancerAmount: new Prisma.Decimal('400'),
+        companyAmount: new Prisma.Decimal('100'),
+      }),
+    );
+
+    const txHash = await service.settleAgreedForMilestone('m1', 'company-user');
+
+    expect(txHash).toBe('TX2');
+    expect(escrow.resolveMilestoneDispute).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'e1' }),
+      expect.objectContaining({ id: 'm1' }),
+      expect.objectContaining({
+        freelancerAmount: new Prisma.Decimal('400'),
+        companyAmount: new Prisma.Decimal('100'),
+      }),
+    );
+  });
+
+  it('settleAgreedForMilestone: returns null when no agreed dispute exists', async () => {
+    prisma.dispute.findFirst.mockResolvedValue(null);
+
+    const txHash = await service.settleAgreedForMilestone('m1', 'company-user');
+
+    expect(txHash).toBeNull();
+    expect(escrow.resolveMilestoneDispute).not.toHaveBeenCalled();
   });
 });

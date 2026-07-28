@@ -10,6 +10,7 @@ import { ActivityLogsService } from '../activity-logs/activity-logs.service';
 import { EscrowService } from '../escrow/escrow.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { ContractsService } from '../contracts/contracts.service';
+import { DisputesService } from '../disputes/disputes.service';
 import type { AuthUser } from '../../common/types/auth';
 import {
   ReviewDeliverableDto,
@@ -54,6 +55,7 @@ export class MilestonesService {
     private readonly notifications: NotificationsService,
     private readonly activityLogs: ActivityLogsService,
     private readonly contracts: ContractsService,
+    private readonly disputes: DisputesService,
   ) {}
 
   /** Load a milestone, ensuring the requester is a party to its contract. */
@@ -147,6 +149,15 @@ export class MilestonesService {
     if (!freelancerAddress) {
       throw new BadRequestException('Connect your wallet to mark delivery');
     }
+    // While a dispute is agreed but not yet settled, the milestone is still
+    // "disputed" on-chain and Trustless Work rejects a status change on it. The
+    // deliverable uploaded now is DB evidence only; the on-chain settlement is
+    // the platform's resolve-milestone-dispute at approval, which does not need
+    // the milestone marked delivered. So there is nothing to sign here.
+    const agreedDisputes = await this.prisma.dispute.count({
+      where: { milestoneId: id, status: 'agreed' },
+    });
+    if (agreedDisputes > 0) return { deliverXdr: null };
     const latest = milestone.deliverables[0];
     const evidence =
       latest?.linkUrl ?? latest?.fileUrl ?? latest?.note ?? 'delivered';
@@ -171,12 +182,21 @@ export class MilestonesService {
     }
     const escrow = milestone.contract.escrow;
     if (!escrow || escrow.status !== 'funded') {
-      throw new BadRequestException('Fund the escrow before approving milestones');
+      throw new BadRequestException(
+        'Fund the escrow before approving milestones',
+      );
     }
     const companyAddress = milestone.contract.company.user.stellarAddress;
     if (!companyAddress) {
       throw new BadRequestException('Connect your wallet to approve');
     }
+    // A milestone settled by an agreed dispute is resolved by the PLATFORM (the
+    // dispute resolver), not by a company-signed milestone approval, so there is
+    // nothing for the company to sign; confirm runs the agreed split.
+    const agreedDisputes = await this.prisma.dispute.count({
+      where: { milestoneId: id, status: 'agreed' },
+    });
+    if (agreedDisputes > 0) return { approveXdr: null };
     return this.escrowService.prepareMilestoneApprove(
       escrow,
       milestone,
@@ -217,10 +237,17 @@ export class MilestonesService {
       );
     }
 
-    const hash = await this.escrowService.releaseMilestoneAsPlatform(
-      escrow,
-      milestone,
+    // If an agreed dispute is riding on this milestone, the company's approval
+    // settles that agreed split (executed by the platform as dispute resolver)
+    // instead of a full release to the freelancer. Returns null for a normal
+    // milestone, in which case we release the full amount as usual.
+    const disputeTxHash = await this.disputes.settleAgreedForMilestone(
+      id,
+      user.id,
     );
+    const hash =
+      disputeTxHash ??
+      (await this.escrowService.releaseMilestoneAsPlatform(escrow, milestone));
 
     const latest = milestone.deliverables[0];
     if (latest) {
@@ -237,20 +264,26 @@ export class MilestonesService {
       `Your deliverable for "${milestone.title}" was approved`,
       { contractId: milestone.contractId, milestoneId: id },
     );
-    await this.notifications.notify(
-      freelancerUserId,
-      'payment_released',
-      `Payment released: ${milestone.amount.toString()} USDC for "${milestone.title}"`,
-      { contractId: milestone.contractId, milestoneId: id, txHash: hash },
-    );
+    // The dispute settlement announces its own split payout, so the generic
+    // full-amount payment notice only applies to a normal release.
+    if (!disputeTxHash) {
+      await this.notifications.notify(
+        freelancerUserId,
+        'payment_released',
+        `Payment released: ${milestone.amount.toString()} USDC for "${milestone.title}"`,
+        { contractId: milestone.contractId, milestoneId: id, txHash: hash },
+      );
+    }
     await this.activityLogs.record(user.id, 'milestone.approved', {
       milestoneId: id,
     });
-    await this.activityLogs.record(user.id, 'payment.released', {
-      milestoneId: id,
-      amount: milestone.amount.toString(),
-      txHash: hash,
-    });
+    if (!disputeTxHash) {
+      await this.activityLogs.record(user.id, 'payment.released', {
+        milestoneId: id,
+        amount: milestone.amount.toString(),
+        txHash: hash,
+      });
+    }
 
     await this.contracts.completeIfAllReleased(milestone.contractId);
     return this.load(id);
@@ -329,5 +362,4 @@ export class MilestonesService {
       );
     }
   }
-
 }

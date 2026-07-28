@@ -83,6 +83,10 @@ export function DisputeDetailPage() {
   const isProposer = dispute.proposedById === user?.id;
   const toFreelancer = formatUSDC(dispute.proposalFreelancerAmount ?? '0');
   const toCompany = formatUSDC(dispute.proposalCompanyAmount ?? '0');
+  // A proposal that pays the freelancer does NOT settle on accept: it reopens
+  // the milestone so the freelancer delivers and the company approves before
+  // any funds move. A pure refund to the company settles immediately.
+  const freelancerGetsShare = Number(dispute.proposalFreelancerAmount ?? 0) > 0;
 
   return (
     <>
@@ -110,6 +114,36 @@ export function DisputeDetailPage() {
           Opened by {dispute.openedBy.email} · {formatDateTime(dispute.openedAt)}
         </p>
       </Card>
+
+      {dispute.status === 'agreed' && (
+        <Card title="Agreement reached">
+          <p className="muted" style={{ fontSize: 13.5, marginBottom: 12 }}>
+            You agreed on the split, but no funds have moved yet. The freelancer
+            delivers the work on the{' '}
+            <Link
+              to={`/contracts/${contract.id}`}
+              style={{ color: 'var(--color-primary)' }}
+            >
+              contract
+            </Link>
+            ; once the company approves it, the escrow releases the agreed
+            amounts.
+          </p>
+          <div className="row" style={{ gap: 24 }}>
+            <div>
+              <p className="muted" style={{ fontSize: 13 }}>To the freelancer</p>
+              <p>{formatUSDC(dispute.freelancerAmount ?? '0')}</p>
+            </div>
+            <div>
+              <p className="muted" style={{ fontSize: 13 }}>To the company</p>
+              <p>{formatUSDC(dispute.companyAmount ?? '0')}</p>
+            </div>
+          </div>
+          {dispute.resolution && (
+            <p style={{ marginTop: 12, whiteSpace: 'pre-wrap' }}>{dispute.resolution}</p>
+          )}
+        </Card>
+      )}
 
       {dispute.status === 'resolved' && (
         <Card title="Resolution">
@@ -185,8 +219,12 @@ export function DisputeDetailPage() {
             <>
               <p className="muted" style={{ fontSize: 13.5, marginBottom: 12 }}>
                 {isProposer
-                  ? 'You proposed this split. It runs on the escrow once the other party accepts. You can change it below.'
-                  : `${dispute.proposedBy?.email ?? 'The other party'} proposed this split. Accept it to execute on the escrow, or counter with your own.`}
+                  ? freelancerGetsShare
+                    ? 'You proposed this split. Once the other party accepts, the freelancer delivers the work and the company approves it before the escrow pays out. You can change it below.'
+                    : 'You proposed this refund. It runs on the escrow as soon as the other party accepts. You can change it below.'
+                  : freelancerGetsShare
+                    ? `${dispute.proposedBy?.email ?? 'The other party'} proposed this split. Accept it to lock it in: the freelancer then delivers and the company approves before any funds move. Or counter with your own.`
+                    : `${dispute.proposedBy?.email ?? 'The other party'} proposed this refund. Accept it to run it on the escrow now, or counter with your own.`}
               </p>
               <div className="row" style={{ gap: 24 }}>
                 <div>
@@ -207,7 +245,7 @@ export function DisputeDetailPage() {
               <div className="row" style={{ gap: 12 }}>
                 {!isProposer && (
                   <Button onClick={() => setConfirmAccept(true)}>
-                    Accept and execute
+                    {freelancerGetsShare ? 'Accept agreement' : 'Accept and refund'}
                   </Button>
                 )}
                 <Button variant="secondary" onClick={() => setShowPropose(true)}>
@@ -244,19 +282,35 @@ export function DisputeDetailPage() {
       {confirmAccept && (
         <ConfirmModal
           title="Accept resolution"
-          confirmLabel="Execute resolution"
+          confirmLabel={freelancerGetsShare ? 'Accept agreement' : 'Execute refund'}
           danger
           loading={accept.isPending}
           onClose={() => setConfirmAccept(false)}
           onConfirm={() => accept.mutate()}
         >
-          <p>
-            Accepting executes the agreed split on the escrow: {toFreelancer} to
-            the freelancer and {toCompany} to the company.
-          </p>
-          <div className="modal__danger-note">
-            This runs on-chain and cannot be undone.
-          </div>
+          {freelancerGetsShare ? (
+            <>
+              <p>
+                You are accepting a split of {toFreelancer} to the freelancer and{' '}
+                {toCompany} to the company. No funds move yet: the milestone
+                reopens so the freelancer delivers the work and the company
+                approves it. The escrow releases these amounts on that approval.
+              </p>
+              <div className="modal__danger-note">
+                Once approved, the on-chain settlement cannot be undone.
+              </div>
+            </>
+          ) : (
+            <>
+              <p>
+                Accepting refunds {toCompany} to the company on the escrow now.
+                The freelancer receives nothing for this milestone.
+              </p>
+              <div className="modal__danger-note">
+                This runs on-chain and cannot be undone.
+              </div>
+            </>
+          )}
         </ConfirmModal>
       )}
     </>

@@ -64,8 +64,10 @@ export class EscrowController {
    */
   @Post('submit')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Broadcast a self-custodial-signed escrow transaction.' })
-  submitSigned(@Body() dto: SubmitSignedDto, @CurrentUser() _user: AuthUser) {
+  @ApiOperation({
+    summary: 'Broadcast a self-custodial-signed escrow transaction.',
+  })
+  submitSigned(@Body() dto: SubmitSignedDto) {
     return this.escrowService.submitSignedTx(dto.signedXdr);
   }
 

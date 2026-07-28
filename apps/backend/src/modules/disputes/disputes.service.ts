@@ -7,7 +7,10 @@ import {
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ActivityLogsService } from '../activity-logs/activity-logs.service';
-import { EscrowService } from '../escrow/escrow.service';
+import {
+  EscrowService,
+  type DisputeDistribution,
+} from '../escrow/escrow.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { ContractsService } from '../contracts/contracts.service';
 import type { AuthUser } from '../../common/types/auth';
@@ -57,6 +60,12 @@ const DISPUTE_MILESTONE_INCLUDE = {
       },
       escrow: true,
     },
+  },
+  // Any dispute still in play (not resolved/closed) blocks opening a new one -
+  // including an 'agreed' one whose milestone has already reopened for delivery.
+  disputes: {
+    where: { status: { notIn: ['resolved', 'closed'] } },
+    select: { id: true },
   },
 } satisfies Prisma.MilestoneInclude;
 
@@ -218,18 +227,27 @@ export class DisputesService {
   }
 
   /**
-   * Accept the standing proposal and execute its split on-chain. Only the party
-   * that did NOT make the current proposal can accept it - that is what makes
-   * the resolution mutual. Without a proposal there is nothing to accept.
+   * Accept the standing proposal. Only the party that did NOT make the current
+   * proposal can accept it - that is what makes the resolution mutual. What
+   * happens next depends on who the money goes to:
+   *
+   *  - Full refund to the company (the freelancer gets nothing): there is
+   *    nothing to deliver, so the escrow settles immediately.
+   *  - Any share to the freelancer: the split is locked in but NOT paid yet.
+   *    The milestone reopens so the freelancer delivers and the company approves
+   *    the work; the escrow settles that agreed split on approval (see
+   *    MilestonesService.confirmApprove). The funds stay locked until then.
    */
   async accept(id: string, user: AuthUser) {
     const dispute = await this.load(id);
     this.assertParticipant(dispute, user);
-    if (['resolved', 'closed'].includes(dispute.status)) {
+    if (['agreed', 'resolved', 'closed'].includes(dispute.status)) {
       throw new BadRequestException('Dispute is already resolved');
     }
     if (!dispute.proposedById || !dispute.proposalOutcome) {
-      throw new BadRequestException('There is no resolution proposal to accept');
+      throw new BadRequestException(
+        'There is no resolution proposal to accept',
+      );
     }
     if (dispute.proposedById === user.id) {
       throw new ForbiddenException(
@@ -250,27 +268,163 @@ export class DisputesService {
       );
     }
 
-    // Settle exactly the agreed proposal (already validated at propose time).
+    // The agreed proposal (already validated at propose time).
     const freelancerAmount =
       dispute.proposalFreelancerAmount ?? new Prisma.Decimal(0);
     const companyAmount =
       dispute.proposalCompanyAmount ?? new Prisma.Decimal(0);
 
-    // Atomic claim BEFORE the on-chain resolution: only the first accept flips
-    // the dispute out of an open state (notIn resolved/closed), so a concurrent
-    // second accept claims 0 rows and aborts and the escrow settles once. If the
-    // on-chain call then fails we revert the claim (below) so it stays retryable
-    // instead of bricking the dispute as "resolved" with no payout.
-    const previousStatus = dispute.status;
+    // The freelancer is owed a share: lock the split, reopen for delivery and
+    // wait for the company's approval before any money moves.
+    if (freelancerAmount.gt(0)) {
+      return this.agreeAndReopen(
+        dispute,
+        user,
+        freelancerAmount,
+        companyAmount,
+      );
+    }
+
+    // Pure refund to the company: settle right away, nothing to deliver.
+    await this.resolveOnChain(dispute, user.id, {
+      freelancerAddress,
+      freelancerAmount,
+      companyAddress,
+      companyAmount,
+    });
+    await this.prisma.milestone.update({
+      where: { id: milestone.id },
+      data: { status: 'released' },
+    });
+    await this.contracts.completeIfAllReleased(contract.id);
+    return this.load(id);
+  }
+
+  /**
+   * Lock in a split that pays the freelancer without moving money: the dispute
+   * becomes 'agreed' and the milestone reopens (straight to 'submitted' if work
+   * already exists, otherwise 'pending' so the freelancer uploads first). The
+   * escrow settles later, when the company approves the delivered work.
+   */
+  private async agreeAndReopen(
+    dispute: LoadedDispute,
+    user: AuthUser,
+    freelancerAmount: Prisma.Decimal,
+    companyAmount: Prisma.Decimal,
+  ): Promise<LoadedDispute> {
+    const milestone = dispute.milestone;
+    const contract = milestone.contract;
+    const deliverableCount = await this.prisma.deliverable.count({
+      where: { milestoneId: milestone.id },
+    });
+    const reopenStatus = deliverableCount > 0 ? 'submitted' : 'pending';
+
+    // Atomic claim: only the first accept locks the agreement (a concurrent
+    // second accept claims 0 rows and aborts). No on-chain call happens here.
     const claimed = await this.prisma.dispute.updateMany({
-      where: { id, status: { notIn: ['resolved', 'closed'] } },
+      where: {
+        id: dispute.id,
+        status: { notIn: ['agreed', 'resolved', 'closed'] },
+      },
       data: {
-        status: 'resolved',
+        status: 'agreed',
         outcome: dispute.proposalOutcome,
         freelancerAmount,
         companyAmount,
         resolution: dispute.proposalNote,
-        resolvedById: user.id,
+      },
+    });
+    if (claimed.count !== 1) {
+      throw new BadRequestException('Dispute is already resolved');
+    }
+    await this.prisma.milestone.update({
+      where: { id: milestone.id },
+      data: { status: reopenStatus },
+    });
+
+    const summary = `Agreement reached on "${milestone.title}": ${freelancerAmount.toString()} USDC to the freelancer and ${companyAmount.toString()} USDC to the company once the work is delivered and approved`;
+    await Promise.all([
+      // Deep-link both parties to the contract, where the work is uploaded and
+      // approved (no disputeId, so the notification opens the contract page).
+      this.notifications.notify(
+        contract.freelancer.userId,
+        'dispute_opened',
+        `${summary}. Upload your deliverable to proceed.`,
+        { contractId: contract.id, milestoneId: milestone.id },
+      ),
+      this.notifications.notify(
+        contract.company.userId,
+        'dispute_opened',
+        summary,
+        { contractId: contract.id, milestoneId: milestone.id },
+      ),
+    ]);
+    await this.activityLogs.record(user.id, 'dispute.agreed', {
+      disputeId: dispute.id,
+      outcome: dispute.proposalOutcome,
+    });
+    return this.load(dispute.id);
+  }
+
+  /**
+   * Settle a milestone's agreed dispute when the company approves the delivered
+   * work. Returns the settlement tx hash, or null when the milestone has no
+   * agreed dispute (a normal, non-dispute release). Called by
+   * MilestonesService.confirmApprove.
+   */
+  async settleAgreedForMilestone(
+    milestoneId: string,
+    approverUserId: string,
+  ): Promise<string | null> {
+    const dispute = await this.prisma.dispute.findFirst({
+      where: { milestoneId, status: 'agreed' },
+      include: DISPUTE_INCLUDE,
+    });
+    if (!dispute) return null;
+    const contract = dispute.milestone.contract;
+    const freelancerAddress = contract.freelancer.user.stellarAddress;
+    const companyAddress = contract.company.user.stellarAddress;
+    if (!freelancerAddress || !companyAddress) {
+      throw new BadRequestException(
+        'Both parties must have a linked Stellar wallet',
+      );
+    }
+    return this.resolveOnChain(dispute, approverUserId, {
+      freelancerAddress,
+      freelancerAmount: dispute.freelancerAmount ?? new Prisma.Decimal(0),
+      companyAddress,
+      companyAmount: dispute.companyAmount ?? new Prisma.Decimal(0),
+    });
+  }
+
+  /**
+   * Claim the dispute as resolved, execute the agreed split on the escrow and
+   * announce it to both parties. Reverts the claim if the on-chain settlement
+   * fails so it stays retryable instead of bricking the dispute as "resolved"
+   * with no payout. Returns the settlement tx hash. The CALLER owns the
+   * milestone status and contract-completion side effects.
+   */
+  private async resolveOnChain(
+    dispute: LoadedDispute,
+    resolvedByUserId: string,
+    distribution: DisputeDistribution,
+  ): Promise<string> {
+    const milestone = dispute.milestone;
+    const contract = milestone.contract;
+    const previousStatus = dispute.status;
+
+    // Atomic claim BEFORE the on-chain resolution: only the first caller flips
+    // the dispute out of a live state, so a concurrent second call claims 0 rows
+    // and the escrow settles exactly once.
+    const claimed = await this.prisma.dispute.updateMany({
+      where: { id: dispute.id, status: { notIn: ['resolved', 'closed'] } },
+      data: {
+        status: 'resolved',
+        outcome: dispute.proposalOutcome,
+        freelancerAmount: distribution.freelancerAmount,
+        companyAmount: distribution.companyAmount,
+        resolution: dispute.proposalNote,
+        resolvedById: resolvedByUserId,
         resolvedAt: new Date(),
       },
     });
@@ -280,51 +434,42 @@ export class DisputesService {
 
     let txHash: string;
     try {
-      txHash = await this.escrowService.resolveMilestoneDispute(escrow, milestone, {
-        freelancerAddress,
-        freelancerAmount,
-        companyAddress,
-        companyAmount,
-      });
+      txHash = await this.escrowService.resolveMilestoneDispute(
+        contract.escrow!,
+        milestone,
+        distribution,
+      );
     } catch (err) {
       // Release the claim so a failed settlement can be retried. Only the status
       // is reverted; the stale resolution fields are overwritten on the retry.
       await this.prisma.dispute.update({
-        where: { id },
+        where: { id: dispute.id },
         data: { status: previousStatus },
       });
       throw err;
     }
 
-    await this.prisma.milestone.update({
-      where: { id: milestone.id },
-      data: { status: 'released' },
-    });
-    const updated = await this.load(id);
-
-    const message = `Dispute on "${milestone.title}" resolved: ${freelancerAmount.toString()} USDC to the freelancer, ${companyAmount.toString()} USDC to the company`;
+    const message = `Dispute on "${milestone.title}" resolved: ${distribution.freelancerAmount.toString()} USDC to the freelancer, ${distribution.companyAmount.toString()} USDC to the company`;
     await Promise.all([
       this.notifications.notify(
         contract.company.userId,
         'dispute_resolved',
         message,
-        { disputeId: id, txHash },
+        { disputeId: dispute.id, txHash },
       ),
       this.notifications.notify(
         contract.freelancer.userId,
         'dispute_resolved',
         message,
-        { disputeId: id, txHash },
+        { disputeId: dispute.id, txHash },
       ),
     ]);
-    await this.activityLogs.record(user.id, 'dispute.resolved', {
-      disputeId: id,
+    await this.activityLogs.record(resolvedByUserId, 'dispute.resolved', {
+      disputeId: dispute.id,
       outcome: dispute.proposalOutcome,
       txHash,
     });
-
-    await this.contracts.completeIfAllReleased(contract.id);
-    return updated;
+    return txHash;
   }
 
   // -- Queries -------------------------------------------------------------------
@@ -412,6 +557,13 @@ export class DisputesService {
         `Cannot dispute a milestone in status "${milestone.status}"`,
       );
     }
+    // Covers an 'agreed' dispute too: its milestone has reopened for delivery
+    // (so the status check above no longer catches it) but it is not settled.
+    if (milestone.disputes.length > 0) {
+      throw new BadRequestException(
+        'This milestone already has an open dispute',
+      );
+    }
     if (!milestone.contract.escrow) {
       throw new BadRequestException('Contract has no funded escrow');
     }
@@ -470,5 +622,4 @@ export class DisputesService {
       }
     }
   }
-
 }

@@ -47,7 +47,8 @@ export class MilestonesController {
   @Post(':id/deliver/prepare')
   @Roles('freelancer')
   @ApiOperation({
-    summary: 'Get the on-chain "delivered" transaction for the freelancer to sign',
+    summary:
+      'Get the on-chain "delivered" transaction for the freelancer to sign',
   })
   prepareDeliver(
     @Param('id', ParseUUIDPipe) id: string,

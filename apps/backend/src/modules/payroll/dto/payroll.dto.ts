@@ -97,7 +97,9 @@ export class UpdatePayrollDto {
 
 /** Result of the company's client-side signature for the payroll fund. */
 export class ConfirmFundDto {
-  @ApiPropertyOptional({ description: 'Stellar tx hash from the wallet signature' })
+  @ApiPropertyOptional({
+    description: 'Stellar tx hash from the wallet signature',
+  })
   @IsOptional()
   @IsString()
   @MaxLength(128)

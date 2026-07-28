@@ -11,10 +11,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { ActivityLogsService } from '../activity-logs/activity-logs.service';
 import { MailService } from '../mail/mail.service';
 import type { AuthUser } from '../../common/types/auth';
-import {
-  INVITATION_TTL_DAYS,
-  MAX_AVATAR_BYTES,
-} from '../../common/constants';
+import { INVITATION_TTL_DAYS, MAX_AVATAR_BYTES } from '../../common/constants';
 import { CreateInvitationDto } from './dto/create-invitation.dto';
 import {
   UpdateCompanyProfileDto,
@@ -92,14 +89,17 @@ export class UsersService {
       'image/gif',
     ];
     if (!allowed.includes(file.mimetype)) {
-      throw new BadRequestException('Format not allowed (PNG, JPG, WEBP or GIF)');
+      throw new BadRequestException(
+        'Format not allowed (PNG, JPG, WEBP or GIF)',
+      );
     }
     if (file.size > MAX_AVATAR_BYTES) {
       throw new BadRequestException('The image exceeds the 2MB maximum');
     }
     const baseUrl = this.config.get<string>('supabase.url');
     const key = this.config.get<string>('supabase.anonKey');
-    const bucket = this.config.get<string>('supabase.avatarBucket') ?? 'avatars';
+    const bucket =
+      this.config.get<string>('supabase.avatarBucket') ?? 'avatars';
     if (!baseUrl || !key) {
       throw new BadRequestException('File uploads are not configured');
     }

@@ -91,6 +91,8 @@ export const DisputeStatus = {
   Escalated: 'escalated',
   Resolved: 'resolved',
   Closed: 'closed',
+  /** Split agreed; awaiting the freelancer's delivery and the company's approval. */
+  Agreed: 'agreed',
 } as const;
 export type DisputeStatus = (typeof DisputeStatus)[keyof typeof DisputeStatus];
 

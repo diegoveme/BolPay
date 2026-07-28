@@ -85,6 +85,11 @@ enum DisputeStatus {
   escalated
   resolved
   closed
+  // Both parties agreed how to split the funds, but the freelancer still has to
+  // deliver and the company still has to approve before the money settles. Only
+  // used when the freelancer receives a share; a full refund resolves directly.
+  // Appended last so the migration is a simple ADD VALUE (order is irrelevant).
+  agreed
 }
 
 enum DisputeOutcome {

@@ -360,7 +360,10 @@ export class EscrowService {
   async deployPayrollEscrow(
     payrollId: string,
     payrollName: string,
-    items: Pick<PayrollItem, 'id' | 'recipientAddress' | 'recipientLabel' | 'amount'>[],
+    items: Pick<
+      PayrollItem,
+      'id' | 'recipientAddress' | 'recipientLabel' | 'amount'
+    >[],
   ): Promise<Escrow> {
     const deploy = await this.chain.deployMultiRelease({
       engagementId: `payroll-${payrollId}-${Date.now()}`,

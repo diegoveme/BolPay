@@ -173,7 +173,9 @@ describe('AuthService', () => {
 
     await expect(
       service.login({ ...baseDto, pollarWalletId: 'wal_old' }),
-    ).rejects.toThrow('Wallet rebinding requires server-side Pollar verification');
+    ).rejects.toThrow(
+      'Wallet rebinding requires server-side Pollar verification',
+    );
     expect(prisma.user.update).not.toHaveBeenCalled();
   });
 
