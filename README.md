@@ -16,6 +16,8 @@ programmable escrow - instead of manual transfers and informal chats.
 [![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
 [![Bun](https://img.shields.io/badge/Runtime-Bun-000000?logo=bun&logoColor=white)](https://bun.sh)
 
+**[Live demo -> bolpay-web.vercel.app](https://bolpay-web.vercel.app/landing)** · running on Stellar Testnet
+
 </div>
 
 ---
@@ -29,6 +31,7 @@ programmable escrow - instead of manual transfers and informal chats.
 - [Technology Stack](#technology-stack)
 - [Repository Structure](#repository-structure)
 - [Documentation](#documentation)
+- [Pitch and Business](#pitch-and-business)
 - [Getting Started](#getting-started)
 - [Scope and Constraints](#scope-and-constraints)
 - [Status](#status)
@@ -124,8 +127,10 @@ BolPay/
 │   └── web/            # React web client (Vite)
 ├── packages/
 │   └── shared/         # Shared enums, model contracts, and API types
-├── assets/             # Brand assets
-├── docs/               # Engineering documentation
+├── assets/                    # Brand assets
+├── docs/                      # Engineering documentation
+├── BolPay_Lean_Canvas.pdf     # Business model (Lean Canvas)
+├── BolPay_Pitch_Deck.pdf      # Pitch deck
 └── README.md
 ```
 
@@ -143,6 +148,13 @@ All engineering documentation lives in the [`docs/`](docs/) directory.
 | [API Reference](docs/api-reference.md) | REST API surface grouped by module. |
 | [Development](docs/development.md) | Local setup, configuration, and tooling. |
 | [Glossary](docs/glossary.md) | Domain and technical terminology. |
+
+## Pitch and Business
+
+| Document | Description |
+|---|---|
+| [Lean Canvas](BolPay_Lean_Canvas.pdf) | One-page business model: problem, solution, value proposition, and metrics. |
+| [Pitch Deck](BolPay_Pitch_Deck.pdf) | Presentation deck used to introduce the project. |
 
 ## Getting Started
 
